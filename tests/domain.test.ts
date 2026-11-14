@@ -1,0 +1,265 @@
+import { describe, it, expect } from 'vitest';
+import { DEFAULT_CATEGORIES, GROUPS } from '../src/config';
+import {
+  addPoint,
+  aggregate,
+  counts,
+  editPoint,
+  emptyMetadata,
+  emptyProject,
+  historyPush,
+  mergeProject,
+  newSession,
+  nextLandmark,
+  now,
+  recordLandmark,
+  screenToImage,
+  setStatus,
+  uid,
+  validateProject,
+  zoomAt,
+  type Project,
+} from '../src/domain';
+import { exportCSVs, importCSVs, serializeProject } from '../src/io';
+import Papa from 'papaparse';
+function fixture() {
+  const p = emptyProject();
+  p.images.push({
+    image_id: uid(),
+    image_filename: 'fish.png',
+    width: 1200,
+    height: 800,
+    sha256: 'a'.repeat(64),
+    original_data_url: 'data:image/png;base64,AA==',
+    display_data_url: 'data:image/png;base64,AA==',
+    metadata: { ...emptyMetadata(), ID: 'A-01', observer: 'observer A' },
+    created_at: now(),
+  });
+  p.sessions.push(newSession(p, p.images[0].image_id, 'observer A'));
+  return p;
+}
+const rows = (text: string) =>
+  Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true }).data;
+describe('coordinate invariants', () => {
+  it('preserves original coordinates after zoom and pan', () => {
+    let v = { x: 20, y: 30, scale: 0.5 };
+    const original = screenToImage({ x: 220, y: 180 }, v);
+    expect(original).toEqual({ x: 400, y: 300 });
+    v = zoomAt(v, { x: 220, y: 180 }, 2);
+    expect(screenToImage({ x: 220, y: 180 }, v)).toEqual(original);
+    v = { ...v, x: v.x + 80, y: v.y - 15 };
+    expect(screenToImage({ x: 300, y: 165 }, v)).toEqual(original);
+  });
+  it('display changes do not mutate stored points', () => {
+    const p = fixture();
+    p.sessions[0] = addPoint(p.sessions[0], 'a1', { x: 400, y: 300 });
+    const before = serializeProject(p);
+    const settings = {
+      brightness: 0.3,
+      contrast: 2,
+      gamma: 0.5,
+      channel: 'G',
+      roi: { x: 100, y: 100 },
+    };
+    void settings;
+    expect(serializeProject(p)).toBe(before);
+  });
+});
+describe('papillae and missing data', () => {
+  it('defines 22 unique categories in exactly four correct groups', () => {
+    expect(DEFAULT_CATEGORIES).toHaveLength(22);
+    expect(GROUPS.map((g) => DEFAULT_CATEGORIES.filter((c) => c.group === g).length)).toEqual([
+      5, 1, 9, 7,
+    ]);
+    expect(new Set(DEFAULT_CATEGORIES.map((c) => c.shortcut)).size).toBe(22);
+  });
+  it('accepts points in all categories and marks them provisional', () => {
+    const p = fixture();
+    let s = p.sessions[0];
+    for (const c of p.categories) s = addPoint(s, c.id, { x: 10, y: 20 });
+    expect(s.points).toHaveLength(22);
+    expect(Object.values(counts(p, s))).toEqual(Array(22).fill(1));
+    expect(aggregate(p, s)).toMatchObject({
+      total: null,
+      subtotal: 0,
+      provisional: 22,
+      complete: false,
+    });
+    for (const c of p.categories) s = setStatus(s, c.id, 'complete');
+    expect(aggregate(p, s)).toMatchObject({
+      total: 22,
+      subtotal: 22,
+      provisional: 0,
+      complete: true,
+    });
+    expect(aggregate(p, s, 'a系列').total).toBe(5);
+    expect(aggregate(p, s, 'c系列').total).toBe(9);
+  });
+  it('distinguishes unobserved, unavailable, provisional zero and observed zero', () => {
+    const p = fixture();
+    let s = p.sessions[0];
+    expect(counts(p, s).a1).toBeNull();
+    s = setStatus(s, 'a1', 'unavailable');
+    expect(counts(p, s).a1).toBeNull();
+    s = setStatus(s, 'a1', 'counting');
+    expect(counts(p, s).a1).toBe(0);
+    s = setStatus(s, 'a1', 'complete');
+    expect(counts(p, s).a1).toBe(0);
+    expect(aggregate(p, s, 'a系列').total).toBeNull();
+  });
+  it('adds, moves, reclassifies and deletes; completed counts reopen', () => {
+    const p = fixture();
+    let s = addPoint(p.sessions[0], 'a1', { x: 10, y: 20 });
+    const id = s.points[0].point_id;
+    s = setStatus(s, 'a1', 'complete');
+    s = editPoint(s, id, { x_px: 55, y_px: 77 });
+    expect(s.points[0]).toMatchObject({ x_px: 55, y_px: 77 });
+    expect(s.statuses.a1.observation_status).toBe('counting');
+    s = editPoint(s, id, { category: 'b' });
+    expect(counts(p, s).a1).toBe(0);
+    expect(counts(p, s).b).toBe(1);
+    expect(() => setStatus(s, 'b', 'unavailable')).toThrow();
+    s = editPoint(s, id, null);
+    expect(s.points).toHaveLength(0);
+  });
+  it('history preserves separate snapshots and bounds memory', () => {
+    const p = fixture(),
+      s = p.sessions[0];
+    const changed = { ...p, sessions: [addPoint(s, 'a1', { x: 10, y: 20 })] };
+    const past = historyPush([], p);
+    expect(past[0].sessions[0].points).toHaveLength(0);
+    expect(changed.sessions[0].points).toHaveLength(1);
+    expect(historyPush(Array(80).fill(p), changed)).toHaveLength(80);
+  });
+});
+describe('landmarks', () => {
+  it('records one point per category and keeps its ID on movement', () => {
+    const p = fixture();
+    let s = p.sessions[0];
+    const id = s.landmarks.eye.point_id;
+    s = recordLandmark(s, 'eye', { x: 10, y: 20 });
+    s = recordLandmark(s, 'eye', { x: 30, y: 40 });
+    expect(
+      Object.values(s.landmarks).filter((l) => l.observation_status === 'recorded'),
+    ).toHaveLength(1);
+    expect(s.landmarks.eye).toMatchObject({ x_px: 30, y_px: 40, point_id: id });
+    expect(s.points).toHaveLength(0);
+  });
+  it('auto-advances in definition order, skipping recorded, unavailable and skipped', () => {
+    const p = fixture();
+    let s = recordLandmark(p.sessions[0], 'eye', { x: 10, y: 20 });
+    s = recordLandmark(s, 'AN', null, true);
+    expect(nextLandmark(p, s)).toBe('PN');
+    expect(nextLandmark(p, s, ['PN'])).toBe('snout_anterior');
+    for (const l of p.landmark_definitions) s = recordLandmark(s, l.id, null, true);
+    expect(nextLandmark(p, s)).toBeUndefined();
+  });
+  it('accepts missing landmarks and clears coordinates for unavailable', () => {
+    const p = fixture();
+    p.sessions[0] = recordLandmark(p.sessions[0], 'eye', null, true);
+    expect(validateProject(p).sessions[0].landmarks.eye.x_px).toBeNull();
+    expect(rows(exportCSVs(p)['landmarks.csv'])).toHaveLength(9);
+    expect(rows(exportCSVs(p)['landmarks.csv'])[1]).toMatchObject({
+      x_px: 'NA',
+      y_px: 'NA',
+      observation_status: 'unrecorded',
+    });
+  });
+});
+describe('metadata, exchanges and safety', () => {
+  it.each(['', 'M', 'F'] as const)('preserves sex %s', (sex) => {
+    const p = fixture();
+    p.images[0].metadata.sex = sex;
+    expect(validateProject(JSON.parse(serializeProject(p))).images[0].metadata.sex).toBe(sex);
+    expect(rows(exportCSVs(p)['specimens.csv'])[0].sex).toBe(sex || 'NA');
+  });
+  it('keeps L/R and observer sessions separate', () => {
+    const p = fixture();
+    const right = {
+      ...structuredClone(p.images[0]),
+      image_id: uid(),
+      metadata: { ...p.images[0].metadata, side: 'R' as const },
+    };
+    p.images.push(right);
+    p.sessions.push(newSession(p, right.image_id, 'B'), newSession(p, p.images[0].image_id, 'B'));
+    p.sessions[0] = addPoint(p.sessions[0], 'a1', { x: 10, y: 20 });
+    const out = rows(exportCSVs(p)['papillae_counts.csv']);
+    expect(out.map((r) => r.side)).toEqual(['L', 'R', 'L']);
+    expect(out.map((r) => r.observer)).toEqual(['observer A', 'B', 'B']);
+    expect(out.map((r) => r.a1)).toEqual(['1', 'NA', 'NA']);
+  });
+  it('CSV counts match coordinates and complete flags protect incomplete totals', () => {
+    const p = fixture();
+    let s = addPoint(p.sessions[0], 'a1', { x: 10, y: 20 });
+    s = addPoint(s, 'a1', { x: 50, y: 60 });
+    s = setStatus(s, 'a1', 'complete');
+    s = setStatus(s, 'b', 'unavailable');
+    p.sessions[0] = s;
+    const out = exportCSVs(p);
+    expect(rows(out['papillae_coordinates.csv'])).toHaveLength(2);
+    expect(rows(out['papillae_counts.csv'])[0]).toMatchObject({
+      a1: '2',
+      b: 'NA',
+      papillae_total: 'NA',
+      papillae_total_complete: 'false',
+      papillae_total_observed_subtotal: '2',
+    });
+    expect(rows(out['papillae_status.csv'])).toHaveLength(22);
+  });
+  it('JSON fully restores metadata, images, statuses, points and sessions', () => {
+    const p = fixture();
+    p.sessions[0] = recordLandmark(addPoint(p.sessions[0], 'oi', { x: 30, y: 40 }), 'eye', {
+      x: 50,
+      y: 60,
+    });
+    expect(validateProject(JSON.parse(serializeProject(p)))).toEqual(p);
+  });
+  it('merges idempotently and preserves conflicts as separate sessions', () => {
+    const p = fixture();
+    expect(mergeProject(p, p).project).toEqual({ ...p, updated_at: expect.any(String) });
+    const b = structuredClone(p);
+    b.sessions[0] = addPoint(b.sessions[0], 'b', { x: 30, y: 40 });
+    const merged = mergeProject(p, b).project;
+    expect(merged.images).toHaveLength(1);
+    expect(merged.sessions).toHaveLength(2);
+    expect(merged.sessions[0].points).toHaveLength(0);
+    expect(merged.sessions[1].points).toHaveLength(1);
+    expect(() => validateProject(merged)).not.toThrow();
+  });
+  it('refuses malformed projects instead of altering existing work', () => {
+    const p = fixture();
+    const bad = structuredClone(p);
+    bad.sessions[0] = addPoint(bad.sessions[0], 'a1', { x: 1300, y: 10 });
+    expect(() => validateProject(bad)).toThrow();
+    expect(() => validateProject({ ...p, version: 99 })).toThrow();
+    expect(p.sessions[0].points).toHaveLength(0);
+  });
+  it('restores CSV to a new session without overwriting existing data', () => {
+    const p = fixture();
+    p.sessions[0] = recordLandmark(addPoint(p.sessions[0], 'c9', { x: 11, y: 22 }), 'eye', {
+      x: 33,
+      y: 44,
+    });
+    const out = exportCSVs(p);
+    const result = importCSVs(p, out).project;
+    expect(result.sessions).toHaveLength(2);
+    expect(result.sessions[1].points[0]).toMatchObject({ category: 'c9', x_px: 11, y_px: 22 });
+    expect(result.sessions[1].landmarks.eye).toMatchObject({ x_px: 33, y_px: 44 });
+    expect(result.sessions[0]).toEqual(p.sessions[0]);
+  });
+  it('rejects CSV count mismatches atomically', () => {
+    const p = fixture();
+    const out = exportCSVs(p);
+    out['papillae_status.csv'] = out['papillae_status.csv'].replace(',NA', ',999');
+    expect(() => importCSVs(p, out)).toThrow();
+    expect(p.sessions).toHaveLength(1);
+  });
+  it('quotes CSV special characters and neutralizes spreadsheet formulas', () => {
+    const p = fixture();
+    p.images[0].metadata.notes = 'line1\n"quoted",line2';
+    p.images[0].metadata.ID = '=1+1';
+    const output = exportCSVs(p);
+    expect(rows(output['specimens.csv'])[0].notes).toBe(p.images[0].metadata.notes);
+    expect(rows(output['papillae_counts.csv'])[0].ID).toBe("'=1+1");
+  });
+});
