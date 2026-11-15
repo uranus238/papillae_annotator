@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS, GROUPS } from './config';
+import { LEGACY_CATEGORIES, LEGACY_LANDMARKS } from './legacyConfig';
 
 const finite = z.number().finite();
 const id = z.string().min(1).max(200);
@@ -49,6 +50,7 @@ const sessionSchema = z.object({
   points: z.array(pointSchema),
   statuses: z.record(z.string(), categoryStateSchema),
   landmarks: z.record(z.string(), landmarkSchema),
+  retired_landmarks: z.record(z.string(), landmarkSchema.extend({ label: z.string() })).default({}),
 });
 const imageSchema = z.object({
   image_id: id,
@@ -136,6 +138,7 @@ export function newSession(project: Project, image_id: string, observer: string)
         },
       ]),
     ),
+    retired_landmarks: {},
   };
 }
 function unique(values: string[], label: string) {
@@ -173,7 +176,7 @@ export function validateProject(value: unknown): Project {
     'c_total',
     'papillae_total',
   ]);
-  if (p.categories.some((c) => reserved.has(c.id) || !/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(c.id)))
+  if (p.categories.some((c) => reserved.has(c.id) || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(c.id)))
     throw new Error('カテゴリIDが出力列と衝突するか、無効です');
   unique(
     [
@@ -223,9 +226,71 @@ export function validateProject(value: unknown): Project {
       )
         throw new Error('Landmarkの状態と座標が不整合です');
     }
+    for (const [key, lm] of Object.entries(s.retired_landmarks)) {
+      pointIds.push(lm.point_id);
+      if (
+        key !== lm.landmark ||
+        (lm.observation_status === 'recorded'
+          ? lm.x_px === null || lm.y_px === null || !inside(lm.x_px, lm.y_px)
+          : lm.x_px !== null || lm.y_px !== null)
+      )
+        throw new Error('保全した旧Landmarkの状態と座標が不整合です');
+    }
   }
   unique(pointIds, '点ID');
   return p;
+}
+// Only the known initial definition is upgraded. Custom research definitions are kept intact.
+export function upgradeObservationDefinitions(p: Project): Project {
+  const initial =
+    p.categories.length === LEGACY_CATEGORIES.length &&
+    LEGACY_CATEGORIES.every((c) =>
+      p.categories.some((old) => old.id === c.id && old.group === c.group),
+    ) &&
+    JSON.stringify(p.landmark_definitions) === JSON.stringify(LEGACY_LANDMARKS);
+  if (!initial) return p;
+  const upgraded: Project = {
+    ...p,
+    updated_at: now(),
+    categories: DEFAULT_CATEGORIES.map((c) => ({
+      ...c,
+      color: p.categories.find((old) => old.id === c.id)?.color ?? c.color,
+    })),
+    landmark_definitions: structuredClone(DEFAULT_LANDMARKS),
+    sessions: p.sessions.map((s) => {
+      const retired_landmarks = { ...s.retired_landmarks };
+      for (const def of p.landmark_definitions)
+        if (!DEFAULT_LANDMARKS.some((l) => l.id === def.id))
+          retired_landmarks[def.id] = { ...s.landmarks[def.id], label: def.label };
+      return {
+        ...s,
+        statuses: Object.fromEntries(
+          DEFAULT_CATEGORIES.map((c) => [
+            c.id,
+            s.statuses[c.id] ?? { observation_status: 'unobserved', updated_at: s.updated_at },
+          ]),
+        ),
+        landmarks: Object.fromEntries(
+          DEFAULT_LANDMARKS.map((l) => [
+            l.id,
+            s.landmarks[l.id] ?? {
+              point_id:
+                `migration_${s.annotation_session_id}_${l.id}`.length <= 200
+                  ? `migration_${s.annotation_session_id}_${l.id}`
+                  : uid(),
+              landmark: l.id,
+              x_px: null,
+              y_px: null,
+              observation_status: 'unrecorded',
+              updated_at: s.updated_at,
+            },
+          ]),
+        ),
+        retired_landmarks,
+      };
+    }),
+  };
+  return validateProject(upgraded);
 }
 export function patchSession(p: Project, sid: string, fn: (s: Session) => Session): Project {
   return {
@@ -335,8 +400,8 @@ export function mergeProject(
   current: Project,
   incoming: Project,
 ): { project: Project; report: string } {
-  const a = validateProject(current),
-    b = validateProject(incoming);
+  const a = upgradeObservationDefinitions(validateProject(current)),
+    b = upgradeObservationDefinitions(validateProject(incoming));
   if (
     JSON.stringify(a.categories) !== JSON.stringify(b.categories) ||
     JSON.stringify(a.landmark_definitions) !== JSON.stringify(b.landmark_definitions)
@@ -380,12 +445,16 @@ export function mergeProject(
       p.sessions.flatMap((s) => [
         ...s.points.map((pt) => pt.point_id),
         ...Object.values(s.landmarks).map((l) => l.point_id),
+        ...Object.values(s.retired_landmarks).map((l) => l.point_id),
       ]),
     );
     copy.points.forEach((pt) => {
       if (used.has(pt.point_id)) pt.point_id = uid();
     });
     Object.values(copy.landmarks).forEach((l) => {
+      if (used.has(l.point_id)) l.point_id = uid();
+    });
+    Object.values(copy.retired_landmarks).forEach((l) => {
       if (used.has(l.point_id)) l.point_id = uid();
     });
     p.sessions.push(copy);

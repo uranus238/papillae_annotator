@@ -176,7 +176,7 @@ export function AnnotationPanel(p: Props) {
                       {project.categories.filter((c) => c.group === group).length} categories
                     </small>
                   </div>
-                  <div className="category-grid">
+                  <div className={`category-grid ${group === 'a系列' ? 'six-columns' : ''}`}>
                     {project.categories
                       .filter((c) => c.group === group)
                       .map((c) => {
@@ -340,6 +340,20 @@ export function AnnotationPanel(p: Props) {
               <p className="muted">画像上の点を選択。ドラッグで移動、Deleteで削除できます。</p>
             )}
           </section>
+        )}
+        {s && Object.keys(s.retired_landmarks).length > 0 && (
+          <details className="retired-landmarks">
+            <summary>以前のLandmark（保全）</summary>
+            <p className="muted note">
+              現在の12項目には含めず、旧データを保全しています。JSON・旧項目CSVに出力されます。
+            </p>
+            {Object.values(s.retired_landmarks).map((l) => (
+              <p key={l.landmark}>
+                {l.label}：{LM_LABEL[l.observation_status]}
+                {l.x_px !== null ? ` (${l.x_px.toFixed(2)}, ${l.y_px!.toFixed(2)} px)` : ''}
+              </p>
+            ))}
+          </details>
         )}
         <details className="marker-settings">
           <summary>点の表示設定</summary>

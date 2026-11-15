@@ -2,7 +2,7 @@
 
 ## ファイル構成
 
-- `src/config.ts`: 初期22カテゴリ・4グループ・9ランドマークのID、色、キー。
+- `src/config.ts`: 標準32カテゴリ・4グループ・12ランドマークのID、色、キー。
 - `src/domain.ts`: バージョン付きデータ型、検証、純粋な更新関数、座標変換、欠測を考慮した集計、追加統合。
 - `src/images.ts`: JPG/PNG/TIFFの読み込み、原本ハッシュ、非破壊表示調整。
 - `src/Viewer.tsx`: react-konvaの画像/注釈の別Layer、ズーム、パン、ROI、座標編集、PNG。
@@ -44,3 +44,11 @@ JSONは画像を含む完全バックアップ。ロード時に構造、IDの�
 Viteの静的ビルドでbaseは相対パス。外部フォント、分析、API、クラウド送信なし。起動時のアセットと明示的な検証サンプル以外の通信を必要としない。初回起動のためのHTTPサーバーまたは静的ホスティングを利用する。クラウド同期、画像自動検出、リアルタイム共同編集は実装しない。
 
 技術参照: [Konvaのポインター基準ズーム](https://konvajs.org/docs/sandbox/Zooming_Relative_To_Pointer.html)、[Dexie Reactガイド](https://dexie.org/docs/Tutorial/React)。
+
+## 2026-11-15 観察定義と利用者ガイド
+
+a1〜a6、b、c1〜c10、その他（番号1〜6とcp、d、x、z、hk1、hk2、os、ot、oi）の32カテゴリ。番号1〜6は従来の「その他」グループに追加し、4グループを維持する。数値だけのカテゴリIDも文字列として保存し、CSV列名を変更しない。新しい12Landmarkの並びはconfig.tsに集約する。旧標準の定義はlegacyConfig.tsに保持し、既知の旧標準だけをupgradeObservationDefinitionsで更新する。追加状態は未観察／未記録で、既存点と共通項目の点IDを保持する。削除された4LandmarkはSession.retired_landmarksにラベル・座標・状態を保全する。CSVは旧項目があるときだけretired_landmarks.csvを追加。JSON統合では旧定義を新定義に合わせ、再読込で同じ旧セッションが増えないよう新規の未記録Landmark IDと日時を安定させる。独自設定は変更しない。
+
+ブラウザ内移行はDexieの単一トランザクションで、移行前のprojectをbefore-observation-update-2026-11-15キーへ保全してからcurrentを更新する。JSON/ZIPの入力ファイルは変更しない。
+
+利用者ガイドはhelp.htmlとsrc/HelpPage.tsxの独立したViteエントリー。アプリを閉じずに別タブで参照でき、IndexedDBや編集ロックにはアクセスしない。相対アセットURLによりGitHub Pagesのリポジトリ配下でも動作し、ヘルプ自体のURLを共同研究者へ共有できる。

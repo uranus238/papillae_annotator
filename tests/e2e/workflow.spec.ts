@@ -4,6 +4,7 @@ import path from 'node:path';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 import type { Project } from '../../src/domain';
+import { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS } from '../../src/config';
 const sample = path.resolve('public/sample.png');
 const runtimeErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
@@ -68,48 +69,26 @@ test('image click, all categories, missingness, CSV/JSON/PNG/ZIP and browser res
   await page.getByLabel('個体 ID *', { exact: true }).fill('QA-01');
   await page.getByLabel('計数者', { exact: true }).fill('Observer A');
   await page.getByLabel('sex', { exact: true }).selectOption('F');
-  const categories = [
-    'a1',
-    'a2',
-    'a3',
-    'a4',
-    'a5',
-    'b',
-    'c1',
-    'c2',
-    'c3',
-    'c4',
-    'c5',
-    'c6',
-    'c7',
-    'c8',
-    'c9',
-    'cp',
-    'd',
-    'x',
-    'z',
-    'os',
-    'ot',
-    'oi',
-  ];
+  const categories = DEFAULT_CATEGORIES.map((c) => c.id);
   for (const [i, c] of categories.entries()) {
     await page.getByTestId(`category-${c}`).click();
     await clickOriginal(page, 160 + i * 28, 460 + (i % 3) * 25);
     await expect(page.getByTestId(`category-${c}`).locator('strong')).toHaveText('1*');
     await page.getByRole('button', { name: '計数完了', exact: true }).click();
   }
-  await expect(page.getByTestId('total-subtotal')).toHaveText('22 個');
+  await expect(page.getByTestId('total-subtotal')).toHaveText('32 個');
   await page.getByRole('tab', { name: 'Landmark', exact: true }).click();
   await clickOriginal(page, 395, 325);
-  await expect(page.getByTestId('landmark-eye')).toContainText('記録済み');
-  await expect(page.getByTestId('landmark-AN')).toHaveClass(/chosen/);
+  await expect(page.getByTestId('landmark-eye_posterior')).toContainText('記録済み');
+  await expect(page.getByTestId('landmark-eye')).toHaveClass(/chosen/);
+  await clickOriginal(page, 350, 325);
   await page.getByRole('button', { name: '観察不可', exact: true }).click();
-  await expect(page.getByTestId('landmark-PN')).toHaveClass(/chosen/);
+  await expect(page.getByTestId('landmark-AN')).toHaveClass(/chosen/);
   await page.getByRole('button', { name: 'スキップ', exact: true }).click();
-  await expect(page.getByTestId('landmark-snout_anterior')).toHaveClass(/chosen/);
+  await expect(page.getByTestId('landmark-upper_lip')).toHaveClass(/chosen/);
   await page.getByLabel('自動で次へ').uncheck();
   await clickOriginal(page, 175, 410);
-  await expect(page.getByTestId('landmark-snout_anterior')).toHaveClass(/chosen/);
+  await expect(page.getByTestId('landmark-upper_lip')).toHaveClass(/chosen/);
   await clickOriginal(page, 200, 400);
   await expect(page.getByRole('alert')).toContainText('記録済みです');
   await expect(page.getByRole('tab', { name: '編集', exact: true })).toHaveAttribute(
@@ -117,21 +96,21 @@ test('image click, all categories, missingness, CSV/JSON/PNG/ZIP and browser res
     'true',
   );
   let p = await project(page);
-  expect(p.sessions[0].points).toHaveLength(22);
+  expect(p.sessions[0].points).toHaveLength(32);
   expect(p.sessions[0].landmarks.eye.observation_status).toBe('recorded');
-  expect(p.sessions[0].landmarks.AN.observation_status).toBe('unavailable');
-  expect(p.sessions[0].landmarks.PN.x_px).toBeNull();
+  expect(p.sessions[0].landmarks.eye_anterior.observation_status).toBe('unavailable');
+  expect(p.sessions[0].landmarks.AN.x_px).toBeNull();
   expect(p.images[0].metadata.sex).toBe('F');
   expect(p.sessions[0].observer).toBe('Observer A');
   const csv = await JSZip.loadAsync(await bytes(await exportDownload(page, 'CSV 5種 ZIP')));
   expect(Object.keys(csv.files)).toHaveLength(5);
   const row = csvRows(await csv.file('papillae_counts.csv')!.async('string'))[0];
-  expect(row.papillae_total).toBe('22');
-  expect(row.a_total).toBe('5');
-  expect(row.c_total).toBe('9');
+  expect(row.papillae_total).toBe('32');
+  expect(row.a_total).toBe('6');
+  expect(row.c_total).toBe('10');
   expect(row.papillae_total_complete).toBe('true');
-  expect(csvRows(await csv.file('papillae_coordinates.csv')!.async('string'))).toHaveLength(22);
-  expect(csvRows(await csv.file('landmarks.csv')!.async('string'))).toHaveLength(9);
+  expect(csvRows(await csv.file('papillae_coordinates.csv')!.async('string'))).toHaveLength(32);
+  expect(csvRows(await csv.file('landmarks.csv')!.async('string'))).toHaveLength(12);
   await page.locator('.marker-settings summary').click();
   await page.getByLabel('不透明度').fill('1');
   // Annotated exports include all records even when the viewer overlay is hidden.
@@ -353,17 +332,7 @@ test('all landmark auto advance completes, manual correction stays selected, cat
     expect(b.y + b.height).toBeLessThan(768 - 25);
   }
   await page.getByRole('tab', { name: 'Landmark', exact: true }).click();
-  const landmarks = [
-    'eye',
-    'AN',
-    'PN',
-    'snout_anterior',
-    'upper_lip',
-    'snout_posterior',
-    'pectoral_upper',
-    'pectoral_lower',
-    'dorsal_origin',
-  ];
+  const landmarks = DEFAULT_LANDMARKS.map((l) => l.id);
   for (let i = 0; i < landmarks.length; i++) {
     await expect(page.getByTestId(`landmark-${landmarks[i]}`)).toHaveClass(/chosen/);
     await clickOriginal(page, 250 + i * 55, 300);
@@ -372,7 +341,7 @@ test('all landmark auto advance completes, manual correction stays selected, cat
   let p = await project(page);
   expect(
     Object.values(p.sessions[0].landmarks).filter((l) => l.observation_status === 'recorded'),
-  ).toHaveLength(9);
+  ).toHaveLength(12);
   await noticeOff(page);
   await page.getByTestId('landmark-eye').click();
   await clickOriginal(page, 300, 350);
@@ -382,7 +351,7 @@ test('all landmark auto advance completes, manual correction stays selected, cat
   expect(p.sessions[0].landmarks.eye.x_px).toBe(260);
   expect(
     Object.values(p.sessions[0].landmarks).filter((l) => l.observation_status === 'recorded'),
-  ).toHaveLength(9);
+  ).toHaveLength(12);
 });
 test('JSON conflicts merge safely; CSV reload adds new sessions; invalid JSON is atomic', async ({
   page,
@@ -486,7 +455,7 @@ test('dragging points, ROI clicks, visibility, keyboard shortcuts and display re
   expect(Math.abs(coords[1] - 300)).toBeLessThan(2);
   await page.mouse.move(largerView.x - 10, largerView.y + 100);
   await expect(page.getByTestId('cursor-position')).toHaveText('原点：画像左上 · 単位：px');
-  await page.keyboard.press('2');
+  await page.keyboard.press('w');
   await clickOriginal(page, 400, 300);
   let p = await project(page);
   expect(p.sessions[0].points[0].category).toBe('a2');
@@ -536,7 +505,7 @@ test('shared category settings can replace initial IDs before recording', async 
   await page.getByRole('button', { name: '設定保存', exact: true }).click();
   const { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS } = await import('../../src/config');
   const config = {
-    categories: DEFAULT_CATEGORIES.map((c, i) => (i === 0 ? { ...c, id: 'custom_a' } : c)),
+    categories: DEFAULT_CATEGORIES.map((c, i) => (c.id === 'a1' ? { ...c, id: 'custom_a' } : c)),
     landmark_definitions: DEFAULT_LANDMARKS,
   };
   await page
@@ -548,6 +517,8 @@ test('shared category settings can replace initial IDs before recording', async 
       buffer: Buffer.from(JSON.stringify(config)),
     });
   await expect(page.locator('.busy-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('category-custom_a')).toBeVisible();
+  await page.getByTestId('category-custom_a').click();
   await expect(page.getByTestId('category-custom_a')).toHaveClass(/chosen/);
   await page.locator('input[type=file]').nth(0).setInputFiles(sample);
   await expect(page.locator('.busy-overlay')).toHaveCount(0);

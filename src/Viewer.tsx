@@ -237,7 +237,11 @@ export function Viewer(p: Props) {
       ctx.stroke();
       ctx.font = `${11 / view.scale}px sans-serif`;
       ctx.fillStyle = LANDMARK_COLOR;
-      ctx.fillText(lm.landmark, x + rr, y - rr);
+      ctx.fillText(
+        p.project.landmark_definitions.find((l) => l.id === lm.landmark)!.label,
+        x + rr,
+        y - rr,
+      );
     }
     return new Promise<Blob>((resolve, reject) =>
       c.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG出力に失敗しました'))), 'image/png'),
@@ -309,7 +313,6 @@ export function Viewer(p: Props) {
               <Crosshair size={52} strokeWidth={1} />
             </div>
             <span className="eyebrow">OBSERVE · MARK · MEASURE</span>
-            <h2>観察を、確かな記録に。</h2>
             <p>
               顕微鏡画像をここにドロップして
               <br />
@@ -481,7 +484,10 @@ export function Viewer(p: Props) {
                           listening={false}
                         />
                         <Text
-                          text={l.landmark}
+                          text={
+                            p.project.landmark_definitions.find((def) => def.id === l.landmark)!
+                              .label
+                          }
                           x={9 / view.scale}
                           y={-14 / view.scale}
                           fontSize={11 / view.scale}

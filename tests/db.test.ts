@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
 import { it, expect } from 'vitest';
-import { ProjectDB } from '../src/db';
+import { ProjectDB, OBSERVATION_BACKUP_KEY } from '../src/db';
 import { emptyProject } from '../src/domain';
+import { LEGACY_CATEGORIES, LEGACY_LANDMARKS } from '../src/legacyConfig';
 it('restores an autosaved project after closing and reopening IndexedDB', async () => {
   const name = `test-${crypto.randomUUID()}`;
   const p = emptyProject();
@@ -11,6 +12,20 @@ it('restores an autosaved project after closing and reopening IndexedDB', async 
   const reopened = new ProjectDB(name);
   expect(await reopened.load()).toEqual(p);
   await reopened.delete();
+});
+it('atomically keeps the pre-update snapshot and migrates stored standard projects only once', async () => {
+  const db = new ProjectDB(`test-${crypto.randomUUID()}`);
+  const p = emptyProject();
+  p.categories = structuredClone(LEGACY_CATEGORIES);
+  p.landmark_definitions = structuredClone(LEGACY_LANDMARKS);
+  // No images are needed to verify the unchanged snapshot; session preservation is tested separately.
+  await db.save(p);
+  const updated = await db.load();
+  expect(updated!.categories).toHaveLength(32);
+  expect((await db.projects.get(OBSERVATION_BACKUP_KEY))!.project).toEqual(p);
+  expect(await db.load()).toEqual(updated);
+  expect((await db.projects.get(OBSERVATION_BACKUP_KEY))!.project).toEqual(p);
+  await db.delete();
 });
 it('rejects invalid persisted data without overwriting it', async () => {
   const db = new ProjectDB(`test-${crypto.randomUUID()}`);

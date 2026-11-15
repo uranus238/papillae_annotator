@@ -7,6 +7,7 @@ import {
   now,
   uid,
   validateProject,
+  upgradeObservationDefinitions,
   type Project,
   type Session,
 } from './domain';
@@ -54,7 +55,13 @@ export function exportCSVs(p: Project): Record<string, string> {
   const landmarks = p.sessions.flatMap((s) =>
     p.landmark_definitions.map((l) => {
       const lm = s.landmarks[l.id];
-      return { ...identity(p, s), ...lm, x_px: NA(lm.x_px), y_px: NA(lm.y_px) };
+      return {
+        ...identity(p, s),
+        ...lm,
+        landmark_label: l.label,
+        x_px: NA(lm.x_px),
+        y_px: NA(lm.y_px),
+      };
     }),
   );
   const specimens = p.images.map((im) => ({
@@ -70,7 +77,7 @@ export function exportCSVs(p: Project): Record<string, string> {
     sha256: im.sha256,
   }));
   const base = ['ID', 'side', 'image_id', 'annotation_session_id', 'observer'];
-  return {
+  const result: Record<string, string> = {
     'papillae_counts.csv': csv(countRows, [
       ...base,
       ...p.categories.map((c) => c.id),
@@ -100,6 +107,7 @@ export function exportCSVs(p: Project): Record<string, string> {
       ...base,
       'point_id',
       'landmark',
+      'landmark_label',
       'x_px',
       'y_px',
       'observation_status',
@@ -123,6 +131,26 @@ export function exportCSVs(p: Project): Record<string, string> {
       'sha256',
     ]),
   };
+  const retired = p.sessions.flatMap((s) =>
+    Object.values(s.retired_landmarks).map((l) => ({
+      ...identity(p, s),
+      ...l,
+      x_px: NA(l.x_px),
+      y_px: NA(l.y_px),
+    })),
+  );
+  if (retired.length)
+    result['retired_landmarks.csv'] = csv(retired, [
+      ...base,
+      'point_id',
+      'landmark',
+      'label',
+      'x_px',
+      'y_px',
+      'observation_status',
+      'updated_at',
+    ]);
+  return result;
 }
 export const serializeProject = (p: Project) => JSON.stringify(validateProject(p), null, 2);
 export async function parseProject(text: string): Promise<Project> {
@@ -136,7 +164,7 @@ export async function parseProject(text: string): Promise<Project> {
       throw new Error(`${image.image_filename}: 元画像の寸法が一致しません`);
     image.display_data_url = decoded.image.display_data_url;
   }
-  return p;
+  return upgradeObservationDefinitions(p);
 }
 export function download(
   content: Blob | string,
@@ -193,7 +221,7 @@ export function importCSVs(
   const incoming = structuredClone(p);
   incoming.sessions = [];
   const sessions = new Map<string, Session>();
-  const read = (name: string) => parseCsv(files[name] ?? '');
+  const read = (name: string) => (files[name] ? parseCsv(files[name]) : []);
   const statusRows = read('papillae_status.csv');
   for (const row of statusRows) {
     const im = p.images.find((i) => i.image_id === row.image_id);
@@ -212,6 +240,7 @@ export function importCSVs(
         points: [],
         statuses: {},
         landmarks: {},
+        retired_landmarks: {},
       });
     const s = sessions.get(sid)!;
     if (s.image_id !== row.image_id || s.observer !== row.observer)
@@ -251,6 +280,19 @@ export function importCSVs(
     s.landmarks[row.landmark] = {
       point_id: uid(),
       landmark: row.landmark,
+      x_px: row.x_px === 'NA' ? null : numeric(row.x_px),
+      y_px: row.y_px === 'NA' ? null : numeric(row.y_px),
+      observation_status: row.observation_status as never,
+      updated_at: row.updated_at,
+    };
+  }
+  for (const row of read('retired_landmarks.csv')) {
+    const s = sessionFor(row);
+    if (s.retired_landmarks[row.landmark]) throw new Error('旧Landmark行が重複しています');
+    s.retired_landmarks[row.landmark] = {
+      point_id: uid(),
+      landmark: row.landmark,
+      label: row.label,
       x_px: row.x_px === 'NA' ? null : numeric(row.x_px),
       y_px: row.y_px === 'NA' ? null : numeric(row.y_px),
       observation_status: row.observation_status as never,

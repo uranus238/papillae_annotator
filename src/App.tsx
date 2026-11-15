@@ -75,7 +75,6 @@ export default function App() {
   const [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false),
     [exports, setExports] = useState(false),
-    [help, setHelp] = useState(false),
     [drag, setDrag] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null),
     dataInput = useRef<HTMLInputElement>(null),
@@ -269,7 +268,6 @@ export default function App() {
       if (e.key === 'Escape') {
         setSelection(null);
         setExports(false);
-        setHelp(false);
       }
       if (e.ctrlKey || e.metaKey) {
         if (e.key.toLowerCase() === 'z') {
@@ -500,14 +498,15 @@ export default function App() {
               </div>
             )}
           </div>
-          <button
-            className="icon-button"
-            title="ヘルプ"
-            aria-label="ヘルプ"
-            onClick={() => setHelp(true)}
+          <a
+            className="help-link"
+            href={`${import.meta.env.BASE_URL}help.html`}
+            target="_blank"
+            rel="noopener noreferrer"
           >
-            <HelpCircle size={19} />
-          </button>
+            <HelpCircle size={17} />
+            使い方
+          </a>
         </div>
       </header>
       <div className="workspace-bar">
@@ -728,46 +727,6 @@ export default function App() {
       {store.locked && (
         <div className="locked-banner">
           {store.saveState}。別タブを閉じてから、この画面を再読み込みしてください。
-        </div>
-      )}
-      {help && (
-        <div className="modal-backdrop" onClick={() => setHelp(false)}>
-          <section
-            className="help-modal"
-            role="dialog"
-            aria-label="使い方"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button className="close-modal" aria-label="閉じる" onClick={() => setHelp(false)}>
-              <X size={20} />
-            </button>
-            <span className="eyebrow">QUICK GUIDE</span>
-            <h2>観察から、解析用データへ。</h2>
-            <ol>
-              <li>画像を読み込み、個体ID・side・計数者を入力。</li>
-              <li>
-                Papillaeカテゴリを選び、画像上をクリック。観察が終わったら「計数完了」。0個でも完了を指定します。
-              </li>
-              <li>
-                Landmarkモードでは1点記録すると次の未記録項目へ。写らない項目は観察不可またはスキップ。
-              </li>
-              <li>編集モードで点をドラッグ。選択点は座標・カテゴリを変更、Deleteで削除。</li>
-              <li>JSONまたは完全バックアップZIPを定期保存。共同研究者のJSONは追加統合します。</li>
-            </ol>
-            <div className="help-keys">
-              <kbd>Ctrl Z</kbd> 元に戻す <kbd>Ctrl Y</kbd> やり直す <kbd>Space</kbd> パン{' '}
-              <kbd>Esc</kbd> 選択解除
-            </div>
-            <p>
-              カテゴリのキーは各ボタン右上に表示。座標は画像左上原点の元画像pxです。未観察・観察不可はNA、計数中は暫定値。完全合計は全対象カテゴリが完了するまでNAです。
-            </p>
-            <p className="muted">
-              データはこの端末・ブラウザ・URLに保存されます。ブラウザのデータ消去で失われるため、JSON/ZIPバックアップを保管してください。画像表示調整・ROI・スキップは作業中の表示設定です。
-            </p>
-            <button className="primary" onClick={() => setHelp(false)}>
-              作業をはじめる
-            </button>
-          </section>
         </div>
       )}
     </div>

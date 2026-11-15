@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
+      input: { main: 'index.html', help: 'help.html' },
       output: {
         manualChunks: {
           'canvas-vendor': ['konva', 'react-konva'],
