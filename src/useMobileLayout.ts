@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-const query = '(max-width: 900px), (pointer: coarse) and (max-width: 1180px)';
+const query = '(max-width: 900px), (pointer: coarse)';
 export function useMobileLayout() {
   const [mobile, setMobile] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
