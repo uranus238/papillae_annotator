@@ -15,6 +15,7 @@ import {
   recordLandmark,
   screenToImage,
   setStatus,
+  completeCategories,
   uid,
   validateProject,
   zoomAt,
@@ -271,6 +272,41 @@ describe('observation definition update', () => {
   });
 });
 describe('papillae and missing data', () => {
+  it('completes selected categories together, explicitly including zero and preserving other observations', () => {
+    const p = fixture();
+    let s = addPoint(p.sessions[0], 'a1', { x: 200, y: 300 });
+    s = setStatus(s, 'b', 'unavailable');
+    s = setStatus(s, 'c3', 'complete');
+    const before = structuredClone(s),
+      updated = completeCategories(s, ['a1', 'c1', '6', 'a1', 'c3']);
+    expect(s).toEqual(before);
+    for (const id of ['a1', 'c1', '6'])
+      expect(updated.statuses[id].observation_status).toBe('complete');
+    expect(updated.statuses.c3).toEqual(s.statuses.c3);
+    expect(updated.statuses.b).toEqual(s.statuses.b);
+    expect(updated.statuses.c2).toEqual(s.statuses.c2);
+    expect(updated.points).toBe(s.points);
+    expect(updated.landmarks).toBe(s.landmarks);
+    expect(updated.retired_landmarks).toBe(s.retired_landmarks);
+    p.sessions[0] = updated;
+    expect(rows(exportCSVs(p)['papillae_counts.csv'])[0]).toMatchObject({
+      a1: '1',
+      c1: '0',
+      '6': '0',
+      b: 'NA',
+      c2: 'NA',
+    });
+    expect(completeCategories(updated, [])).toBe(updated);
+    expect(completeCategories(updated, ['a1', 'c1'])).toBe(updated);
+  });
+  it('rejects an unavailable or unknown category atomically without confirming missing observations', () => {
+    const s = setStatus(fixture().sessions[0], 'b', 'unavailable');
+    const before = structuredClone(s);
+    expect(() => completeCategories(s, ['a1', 'b'])).toThrow('観察不可');
+    expect(s).toEqual(before);
+    expect(() => completeCategories(s, ['a1', 'not-a-category'])).toThrow('存在しません');
+    expect(s).toEqual(before);
+  });
   it('defines 32 unique categories in the original four groups', () => {
     expect(DEFAULT_CATEGORIES).toHaveLength(32);
     expect(GROUPS.map((g) => DEFAULT_CATEGORIES.filter((c) => c.group === g).length)).toEqual([

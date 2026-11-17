@@ -8,6 +8,121 @@
   --border: #dce5e5;
   --muted: #7c8f93;
 }
+.bulk-complete {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 12px 0;
+  background: #f6faf9;
+}
+.bulk-complete > summary {
+  cursor: pointer;
+  padding: 11px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #197c72;
+}
+.bulk-complete > summary svg {
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.bulk-content {
+  padding: 0 10px 10px;
+}
+.bulk-content p {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bulk-actions button,
+.bulk-group {
+  font-size: 10px;
+  padding: 6px;
+}
+.bulk-list {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 10px 0;
+}
+.bulk-list fieldset {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 8px 0;
+}
+.bulk-list legend {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+.bulk-group {
+  width: 100%;
+  margin-bottom: 4px;
+}
+.bulk-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.bulk-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #197c72;
+  flex-shrink: 0;
+}
+.bulk-option i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.bulk-option b {
+  min-width: 25px;
+}
+.bulk-option span {
+  margin-left: auto;
+  font-size: 10px;
+  color: #597775;
+}
+.bulk-option:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+.bulk-review {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  font-size: 12px;
+}
+.bulk-apply {
+  width: 100%;
+  justify-content: center;
+  white-space: normal;
+}
+.mobile-app .bulk-complete > summary {
+  padding: 14px 10px;
+  font-size: 14px;
+}
+.mobile-app .bulk-option {
+  min-height: 44px;
+}
+.mobile-app .bulk-option input {
+  width: 20px;
+  height: 20px;
+}
+.mobile-app .bulk-list {
+  max-height: 260px;
+}
 * {
   box-sizing: border-box;
 }

@@ -30,6 +30,7 @@ import {
   patchSession,
   recordLandmark,
   setStatus,
+  completeCategories,
   validateProject,
   upgradeObservationDefinitions,
   type ImageRecord,
@@ -699,6 +700,15 @@ export default function App() {
           skipped={skipped}
           onSkip={onSkip}
           onStatus={(v: Status) => act(() => updateSession((s) => setStatus(s, category, v)))}
+          onBulkComplete={(categories) =>
+            act(() => {
+              if (!session || busy || store.locked || !store.ready || !categories.length) return;
+              updateSession((s) => completeCategories(s, categories));
+              setNotice(
+                `${categories.length}項目を計数完了にしました。「元に戻す」1回で取り消せます。`,
+              );
+            })
+          }
           onLMStatus={onLMStatus}
           hidden={hidden}
           setHidden={setHidden}

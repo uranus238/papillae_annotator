@@ -16,6 +16,7 @@ import {
 import { GROUPS, STATUS_LABEL, LM_LABEL } from './config';
 import { aggregate, counts, type Project, type Session, type Status } from './domain';
 import type { Mode, Selection } from './Viewer';
+import { BulkComplete } from './BulkComplete';
 type Props = {
   project: Project;
   session?: Session;
@@ -30,6 +31,7 @@ type Props = {
   onSkip: () => void;
   skipped: string[];
   onStatus: (status: Status) => void;
+  onBulkComplete: (categories: string[]) => void;
   onLMStatus: (unavailable: boolean) => void;
   hidden: string[];
   setHidden: (v: string[]) => void;
@@ -275,6 +277,14 @@ export function AnnotationPanel(p: Props) {
                 ))}
               </select>
             </div>
+            {s && p.mode === 'papillae' && (
+              <BulkComplete
+                key={s.annotation_session_id}
+                project={project}
+                session={s}
+                onComplete={p.onBulkComplete}
+              />
+            )}
             <div className="total-card">
               <div>
                 <span>確定小計</span>

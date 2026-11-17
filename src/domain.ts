@@ -362,6 +362,21 @@ export function setStatus(s: Session, category: string, status: Status): Session
     statuses: { ...s.statuses, [category]: { observation_status: status, updated_at: now() } },
   };
 }
+export function completeCategories(s: Session, categories: string[]): Session {
+  const ids = [...new Set(categories)];
+  for (const id of ids) {
+    const state = s.statuses[id];
+    if (!state) throw new Error('一括完了のカテゴリが存在しません。');
+    if (state.observation_status === 'unavailable')
+      throw new Error('観察不可の項目は一括完了の対象にできません。');
+  }
+  const pending = ids.filter((id) => s.statuses[id].observation_status !== 'complete');
+  if (!pending.length) return s;
+  const updated_at = now(),
+    statuses = { ...s.statuses };
+  for (const id of pending) statuses[id] = { observation_status: 'complete', updated_at };
+  return { ...s, statuses };
+}
 export function recordLandmark(
   s: Session,
   landmark: string,
