@@ -1,18 +1,13 @@
-import { test, expect, type Page, type Download } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { exportedFile } from './downloads';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 import { LEGACY_CATEGORIES, LEGACY_LANDMARKS } from '../../src/legacyConfig';
 import { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS } from '../../src/config';
 import { addPoint, newSession, recordLandmark, setStatus, type Project } from '../../src/domain';
-async function data(d: Download) {
-  const stream = await d.createReadStream();
-  const chunks: Buffer[] = [];
-  for await (const c of stream!) chunks.push(Buffer.from(c));
-  return Buffer.concat(chunks);
-}
 async function dismiss(page: Page) {
   const b = page.getByRole('button', { name: '通知を閉じる' });
   if (await b.count()) await b.click();
@@ -20,9 +15,7 @@ async function dismiss(page: Page) {
 async function output(page: Page, label = 'プロジェクト JSON') {
   await dismiss(page);
   await page.getByRole('button', { name: '書き出す', exact: true }).click();
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: label }).click();
-  return data(await download);
+  return (await exportedFile(page, () => page.getByRole('button', { name: label }).click())).buffer;
 }
 async function saved(page: Page): Promise<Project> {
   return JSON.parse((await output(page)).toString());
@@ -93,23 +86,24 @@ test('legacy JSON keeps the original anatomy and new missing states, including e
     'PN：記録済み (320.00, 200.00 px)',
   );
   await expect(page.getByTestId('landmark-eye_posterior')).toHaveClass(/chosen/);
-  expect(await page.locator('.landmark-button').count()).toBe(12);
+  expect(await page.locator('.landmark-button').count()).toBe(13);
   await expect(page.getByTestId('landmark-PN')).toHaveCount(0);
   let p = await saved(page);
   const s = p.sessions.find((s) => s.annotation_session_id === sid)!;
   expect(s.points).toEqual(legacy.sessions[0].points);
   expect(s.landmarks.eye).toEqual(legacy.sessions[0].landmarks.eye);
+  expect(s.landmarks.dorsal_origin).toEqual(legacy.sessions[0].landmarks.dorsal_origin);
   expect(s.statuses['1'].observation_status).toBe('unobserved');
   expect(s.statuses.a6.observation_status).toBe('unobserved');
   expect(s.retired_landmarks.PN).toMatchObject(legacy.sessions[0].landmarks.PN);
-  expect(Object.keys(s.retired_landmarks)).toHaveLength(4);
+  expect(Object.keys(s.retired_landmarks)).toHaveLength(3);
   const csv = await JSZip.loadAsync(await output(page, 'CSV 5種 ZIP'));
   expect(Object.keys(csv.files)).toHaveLength(6);
   const retired = Papa.parse<Record<string, string>>(
     await csv.file('retired_landmarks.csv')!.async('string'),
     { header: true, skipEmptyLines: true },
   ).data;
-  expect(retired).toHaveLength(4);
+  expect(retired).toHaveLength(3);
   expect(retired.find((row) => row.landmark === 'PN')).toMatchObject({
     label: 'PN',
     x_px: '320',
@@ -124,6 +118,89 @@ test('legacy JSON keeps the original anatomy and new missing states, including e
   await page.reload();
   await expect(page.getByRole('status')).toHaveText('ローカル保存済み');
   expect((await saved(page)).sessions).toEqual(p.sessions);
+});
+
+test('twelve-landmark storage is backed up, archived dorsal points return, and new dorsal clicks export', async ({
+  page,
+}) => {
+  const p = await prepare(page);
+  p.sessions[0] = recordLandmark(p.sessions[0], 'eye', { x: 250, y: 300 });
+  const archived = {
+    ...p.sessions[0].landmarks.dorsal_origin,
+    observation_status: 'recorded' as const,
+    x_px: 700,
+    y_px: 200,
+  };
+  p.landmark_definitions = p.landmark_definitions.filter((l) => l.id !== 'dorsal_origin');
+  delete p.sessions[0].landmarks.dorsal_origin;
+  const second = newSession(p, p.images[0].image_id, 'Archived observer');
+  second.retired_landmarks.dorsal_origin = { ...archived, label: '第一背鰭前端' };
+  p.sessions.push(second);
+  await expect(page.getByRole('status')).toHaveText('ローカル保存済み');
+  await page.evaluate(
+    async (project) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('papillae-annotator-v1');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result,
+            tx = db.transaction('projects', 'readwrite');
+          tx.objectStore('projects').put({ key: 'current', project });
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        };
+      }),
+    p,
+  );
+  await page.reload();
+  await expect(page.getByRole('status')).toHaveText('ローカル保存済み');
+  await page.getByRole('tab', { name: 'Landmark', exact: true }).click();
+  await expect(page.locator('.landmark-button')).toHaveCount(13);
+  await expect(page.getByTestId('landmark-dorsal_origin')).toContainText('第一背鰭前端');
+  let updated = await saved(page);
+  expect(updated.sessions[0].landmarks.eye).toEqual(p.sessions[0].landmarks.eye);
+  expect(updated.sessions[0].landmarks.dorsal_origin.observation_status).toBe('unrecorded');
+  expect(updated.sessions[1].landmarks.dorsal_origin).toEqual(archived);
+  expect(updated.sessions[1].retired_landmarks.dorsal_origin).toBeUndefined();
+  expect(await idbRead(page, 'before-dorsal-landmark-update-2026-11-17')).toEqual(p);
+  await dismiss(page);
+  await page.getByTestId('landmark-dorsal_origin').click();
+  const box = (await page.getByTestId('viewer').boundingBox())!;
+  const scale = Math.min((box.width - 32) / 1200, (box.height - 32) / 800);
+  await page.mouse.click(box.x + box.width / 2 + 300 * scale, box.y + box.height / 2 - 150 * scale);
+  updated = await saved(page);
+  const dorsal = updated.sessions[0].landmarks.dorsal_origin;
+  expect(dorsal.observation_status).toBe('recorded');
+  // Browser mouse coordinates are rounded to CSS pixels; stored coordinates remain fractional.
+  expect(Math.abs(dorsal.x_px! - 900)).toBeLessThan(1 / scale);
+  expect(Math.abs(dorsal.y_px! - 250)).toBeLessThan(1 / scale);
+  const csv = await JSZip.loadAsync(await output(page, 'CSV 5種 ZIP'));
+  const rows = Papa.parse<Record<string, string>>(
+    await csv.file('landmarks.csv')!.async('string'),
+    { header: true, skipEmptyLines: true },
+  ).data;
+  expect(
+    rows.find(
+      (r) =>
+        r.landmark === 'dorsal_origin' &&
+        r.annotation_session_id === updated.sessions[0].annotation_session_id,
+    ),
+  ).toMatchObject({
+    landmark_label: '第一背鰭前端',
+    x_px: String(dorsal.x_px),
+    y_px: String(dorsal.y_px),
+  });
+  await expect(page.getByRole('status')).toHaveText('ローカル保存済み');
+  await page.reload();
+  await expect(page.getByRole('status')).toHaveText('ローカル保存済み');
+  expect((await saved(page)).sessions).toEqual(updated.sessions);
+  expect(await idbRead(page, 'before-dorsal-landmark-update-2026-11-17')).toEqual(p);
 });
 test('stored old definitions are migrated once with an intact pre-update backup', async ({
   page,

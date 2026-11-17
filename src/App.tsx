@@ -18,6 +18,8 @@ import { AnnotationPanel } from './AnnotationPanel';
 import { MetadataPanel } from './MetadataPanel';
 import { Viewer, type Mode, type Selection, type ROI } from './Viewer';
 import { useProject } from './useProject';
+import { useMobileLayout } from './useMobileLayout';
+import { MobileControls } from './MobileControls';
 import {
   addPoint,
   editPoint,
@@ -29,6 +31,7 @@ import {
   recordLandmark,
   setStatus,
   validateProject,
+  upgradeObservationDefinitions,
   type ImageRecord,
   type Metadata,
   type Project,
@@ -50,6 +53,8 @@ function message(e: unknown) {
     : String(e instanceof Error ? e.message : e);
 }
 export default function App() {
+  const mobile = useMobileLayout();
+  const [mobileSheet, setMobileSheet] = useState<'images' | 'annotations' | null>(null);
   const store = useProject();
   const { project, commit } = store;
   const [imageId, setImageId] = useState(''),
@@ -62,6 +67,9 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('papillae'),
     [category, setCategory] = useState('a1'),
     [landmark, setLandmark] = useState('eye');
+  useEffect(() => {
+    if (mobile && mode === 'pan') setMode('papillae');
+  }, [mobile, mode]);
   const [selection, setSelection] = useState<Selection>(null),
     [auto, setAuto] = useState(true),
     [skipped, setSkipped] = useState<string[]>([]),
@@ -82,6 +90,47 @@ export default function App() {
     exportRef = useRef<((includeLandmarks: boolean) => Promise<Blob>) | null>(null);
   const latest = useRef(project);
   latest.current = project;
+  useEffect(() => {
+    if (!mobile) setMobileSheet(null);
+  }, [mobile]);
+  useEffect(() => {
+    if (!mobile || !mobileSheet) return;
+    const before = document.activeElement as HTMLElement | null;
+    const panel = document.querySelector<HTMLElement>(
+      mobileSheet === 'images' ? '.left-panel' : '.right-panel',
+    );
+    const frame = requestAnimationFrame(() =>
+      panel?.querySelector<HTMLButtonElement>('.mobile-close')?.focus(),
+    );
+    const keys = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMobileSheet(null);
+      }
+      if (e.key === 'Tab' && panel) {
+        const items = Array.from(
+          panel.querySelectorAll<HTMLElement>(
+            'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,a[href]',
+          ),
+        ).filter((el) => el.getClientRects().length);
+        const first = items[0],
+          last = items.at(-1);
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', keys);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', keys);
+      if (before?.isConnected) before.focus();
+    };
+  }, [mobile, mobileSheet]);
   useEffect(() => {
     setSelection(null);
     setSkipped([]);
@@ -165,6 +214,7 @@ export default function App() {
         });
         setImageId(loaded[0].image_id);
         setSessionId('');
+        if (mobile) setMobileSheet('images');
       }
       setNotice(messages.join('\n') || `${loaded.length}画像を登録しました`);
     });
@@ -177,7 +227,7 @@ export default function App() {
       ]);
     });
   const onAdd = (pos: XY) => {
-    if (!session) return;
+    if (!session || busy || store.locked || !store.ready) return;
     act(() => {
       if (mode === 'papillae') updateSession((s) => addPoint(s, category, pos));
       else if (mode === 'landmark') {
@@ -204,6 +254,7 @@ export default function App() {
     });
   };
   const onMove = (sel: NonNullable<Selection>, pos: XY) => {
+    if (busy || store.locked || !store.ready) return;
     if (
       !image ||
       !Number.isFinite(pos.x) ||
@@ -255,6 +306,23 @@ export default function App() {
       if (next) setLandmark(next);
     }
   };
+  const changeMode = (v: Mode) => {
+    setMode(v);
+    if (v === 'landmark' && auto && session) {
+      const first = nextLandmark(project, session, skipped);
+      if (first) setLandmark(first);
+    }
+  };
+  const saveSettings = () =>
+    download(
+      JSON.stringify(
+        { categories: project.categories, landmark_definitions: project.landmark_definitions },
+        null,
+        2,
+      ),
+      'categories.json',
+      'application/json',
+    );
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (busy || store.locked || !store.ready) return;
@@ -333,6 +401,7 @@ export default function App() {
         else result = mergeProject(latest.current, incoming);
       }
       commit(() => result.project);
+      setMobileSheet(null);
       setNotice(result.report);
     });
   const exportData = (kind: string) =>
@@ -379,12 +448,14 @@ export default function App() {
         throw new Error(
           '記録開始後のカテゴリ変更はできません。設定を出力し、新しいブラウザプロファイルで画像登録前に読み込んでください。',
         );
-      const changed = validateProject({
-        ...p,
-        categories: config.categories,
-        landmark_definitions: config.landmark_definitions,
-        sessions: [],
-      });
+      const changed = upgradeObservationDefinitions(
+        validateProject({
+          ...p,
+          categories: config.categories,
+          landmark_definitions: config.landmark_definitions,
+          sessions: [],
+        }),
+      );
       changed.sessions = p.sessions.map((s) => ({
         ...newSession(changed, s.image_id, s.observer),
         annotation_session_id: s.annotation_session_id,
@@ -405,7 +476,8 @@ export default function App() {
     );
   return (
     <div
-      className="app"
+      className={`app ${mobile ? 'mobile-app' : ''}`}
+      data-sheet={mobileSheet ?? ''}
       onDragOver={(e) => {
         e.preventDefault();
         if (!busy) setDrag(true);
@@ -438,7 +510,7 @@ export default function App() {
             role="status"
           >
             <span className="live-dot" />
-            {store.saveState}
+            <span title={store.saveState}>{store.saveState}</span>
           </span>
           <button
             onClick={() => dataInput.current?.click()}
@@ -543,6 +615,9 @@ export default function App() {
       </div>
       <fieldset className="workspace" disabled={!store.ready || store.locked || busy}>
         <MetadataPanel
+          onClose={mobile ? () => setMobileSheet(null) : undefined}
+          onConfigExport={saveSettings}
+          onConfigImport={() => configInput.current?.click()}
           project={project}
           image={image}
           session={session}
@@ -577,6 +652,8 @@ export default function App() {
           resetDisplay={() => setDisplay(DEFAULT_DISPLAY)}
         />
         <Viewer
+          mobile={mobile}
+          disabled={!store.ready || store.locked || busy}
           project={project}
           image={image}
           session={session}
@@ -602,20 +679,21 @@ export default function App() {
           exportRef={exportRef}
         />
         <AnnotationPanel
+          onClose={mobile ? () => setMobileSheet(null) : undefined}
           project={project}
           session={session}
           mode={mode}
-          setMode={(v) => {
-            setMode(v);
-            if (v === 'landmark' && auto && session) {
-              const first = nextLandmark(project, session, skipped);
-              if (first) setLandmark(first);
-            }
-          }}
+          setMode={changeMode}
           category={category}
-          setCategory={setCategory}
+          setCategory={(v) => {
+            setCategory(v);
+            if (mobile) setMobileSheet(null);
+          }}
           landmark={landmark}
-          setLandmark={setLandmark}
+          setLandmark={(v) => {
+            setLandmark(v);
+            if (mobile) setMobileSheet(null);
+          }}
           auto={auto}
           setAuto={toggleAuto}
           skipped={skipped}
@@ -647,6 +725,37 @@ export default function App() {
           onClearSkip={() => setSkipped([])}
         />
       </fieldset>
+      {mobile && (
+        <MobileControls
+          project={project}
+          session={session}
+          mode={mode}
+          setMode={changeMode}
+          category={category}
+          landmark={landmark}
+          selection={selection}
+          onImages={() => {
+            setExports(false);
+            setMobileSheet('images');
+          }}
+          onAnnotations={() => {
+            setExports(false);
+            setMobileSheet('annotations');
+          }}
+          undo={store.undo}
+          redo={store.redo}
+          canUndo={store.canUndo}
+          canRedo={store.canRedo}
+          onComplete={() => act(() => updateSession((s) => setStatus(s, category, 'complete')))}
+          onUnavailable={() =>
+            mode === 'landmark'
+              ? onLMStatus(true)
+              : act(() => updateSession((s) => setStatus(s, category, 'unavailable')))
+          }
+          onSkip={onSkip}
+          disabled={!store.ready || store.locked || busy}
+        />
+      )}
       <footer className="app-footer">
         <span>
           PAPILLAE ANNOTATOR <b>·</b> 手動アノテーション
@@ -716,6 +825,13 @@ export default function App() {
             <X size={16} />
           </button>
         </div>
+      )}
+      {mobile && mobileSheet && (
+        <button
+          className="mobile-sheet-backdrop"
+          aria-label="パネルの外をタップして閉じる"
+          onClick={() => setMobileSheet(null)}
+        />
       )}
       {drag && <div className="drop-overlay">画像をドロップして追加</div>}
       {busy && (

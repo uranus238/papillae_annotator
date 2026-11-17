@@ -177,7 +177,13 @@ export function download(
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
-  a.click();
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } finally {
+    a.remove();
+  }
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 export async function zipBackup(p: Project) {

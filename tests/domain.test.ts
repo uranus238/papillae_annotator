@@ -124,6 +124,7 @@ describe('observation definition update', () => {
       '胸鰭上端',
       '胸鰭下端',
       '腹鰭前端',
+      '第一背鰭前端',
     ]);
     expect(rows(exportCSVs(p)['landmarks.csv']).map((row) => row.landmark_label)).toEqual(
       p.landmark_definitions.map((l) => l.label),
@@ -146,20 +147,21 @@ describe('observation definition update', () => {
     expect(p).toEqual(original);
     expect(s.points).toEqual(original.sessions[0].points);
     expect(s.landmarks.eye).toEqual(original.sessions[0].landmarks.eye);
+    expect(s.landmarks.dorsal_origin).toEqual(original.sessions[0].landmarks.dorsal_origin);
     expect(s.statuses.a1).toEqual(original.sessions[0].statuses.a1);
     expect(updated.categories.find((c) => c.id === 'a1')!.color).toBe('#123456');
     expect(s.statuses['1'].observation_status).toBe('unobserved');
     expect(s.statuses.a6.observation_status).toBe('unobserved');
     expect(s.landmarks.eye_posterior.observation_status).toBe('unrecorded');
-    expect(Object.keys(s.landmarks)).toHaveLength(12);
-    expect(Object.keys(s.retired_landmarks)).toHaveLength(4);
-    for (const id of ['PN', 'snout_anterior', 'snout_posterior', 'dorsal_origin'])
+    expect(Object.keys(s.landmarks)).toHaveLength(13);
+    expect(Object.keys(s.retired_landmarks)).toHaveLength(3);
+    for (const id of ['PN', 'snout_anterior', 'snout_posterior'])
       expect(s.retired_landmarks[id]).toMatchObject(original.sessions[0].landmarks[id]);
     expect(aggregate(updated, s, 'a系列')).toMatchObject({ total: null, subtotal: 5 });
     expect(aggregate(updated, s, 'c系列')).toMatchObject({ total: null, subtotal: 9 });
     const csv = exportCSVs(updated);
-    expect(rows(csv['landmarks.csv'])).toHaveLength(12);
-    expect(rows(csv['retired_landmarks.csv'])).toHaveLength(4);
+    expect(rows(csv['landmarks.csv'])).toHaveLength(13);
+    expect(rows(csv['retired_landmarks.csv'])).toHaveLength(3);
     expect(validateProject(JSON.parse(serializeProject(updated)))).toEqual(updated);
     const reimport = importCSVs(updated, csv).project;
     expect(reimport.sessions[1].retired_landmarks.PN).toMatchObject({
@@ -178,6 +180,58 @@ describe('observation definition update', () => {
     p.categories[0].id = 'custom';
     p.sessions = [];
     expect(upgradeObservationDefinitions(p)).toBe(p);
+  });
+  it('adds the thirteenth landmark to existing twelve-point projects without changing observations', () => {
+    const p = fixture();
+    p.sessions[0] = recordLandmark(addPoint(p.sessions[0], 'a1', { x: 15, y: 25 }), 'eye', {
+      x: 100,
+      y: 200,
+    });
+    p.landmark_definitions = p.landmark_definitions.filter((l) => l.id !== 'dorsal_origin');
+    delete p.sessions[0].landmarks.dorsal_origin;
+    p.categories[0].color = '#123456';
+    const before = structuredClone(p),
+      updated = upgradeObservationDefinitions(p);
+    expect(p).toEqual(before);
+    expect(updated.categories).toEqual(p.categories);
+    expect(updated.images).toEqual(p.images);
+    expect(updated.sessions[0].points).toEqual(p.sessions[0].points);
+    expect(updated.sessions[0].statuses).toEqual(p.sessions[0].statuses);
+    expect(updated.sessions[0].landmarks.eye).toEqual(p.sessions[0].landmarks.eye);
+    expect(updated.sessions[0].landmarks.dorsal_origin).toMatchObject({
+      observation_status: 'unrecorded',
+      x_px: null,
+      y_px: null,
+    });
+    expect(upgradeObservationDefinitions(updated)).toBe(updated);
+    expect(mergeProject(updated, p).project.sessions).toHaveLength(1);
+    expect(
+      rows(exportCSVs(updated)['landmarks.csv']).find((r) => r.landmark === 'dorsal_origin'),
+    ).toMatchObject({ landmark_label: '第一背鰭前端', x_px: 'NA', y_px: 'NA' });
+    const custom = structuredClone(p);
+    custom.landmark_definitions[0].label = 'Custom anatomy';
+    expect(upgradeObservationDefinitions(custom)).toBe(custom);
+  });
+  it('restores archived dorsal records with their original point IDs, coordinates and states', () => {
+    for (const status of ['recorded', 'unrecorded', 'unavailable'] as const) {
+      const p = fixture();
+      const dorsal = {
+        ...p.sessions[0].landmarks.dorsal_origin,
+        observation_status: status,
+        x_px: status === 'recorded' ? 310 : null,
+        y_px: status === 'recorded' ? 220 : null,
+      };
+      p.landmark_definitions = p.landmark_definitions.filter((l) => l.id !== 'dorsal_origin');
+      delete p.sessions[0].landmarks.dorsal_origin;
+      p.sessions[0].retired_landmarks.dorsal_origin = { ...dorsal, label: '第一背鰭前端' };
+      const before = structuredClone(p),
+        updated = upgradeObservationDefinitions(p);
+      expect(p).toEqual(before);
+      expect(updated.sessions[0].landmarks.dorsal_origin).toEqual(dorsal);
+      expect(updated.sessions[0].retired_landmarks.dorsal_origin).toBeUndefined();
+      expect(validateProject(updated)).toEqual(updated);
+      expect(mergeProject(updated, p).project.sessions).toHaveLength(1);
+    }
   });
 });
 describe('papillae and missing data', () => {
@@ -273,7 +327,7 @@ describe('landmarks', () => {
     const p = fixture();
     p.sessions[0] = recordLandmark(p.sessions[0], 'eye', null, true);
     expect(validateProject(p).sessions[0].landmarks.eye.x_px).toBeNull();
-    expect(rows(exportCSVs(p)['landmarks.csv'])).toHaveLength(12);
+    expect(rows(exportCSVs(p)['landmarks.csv'])).toHaveLength(13);
     expect(rows(exportCSVs(p)['landmarks.csv'])[0]).toMatchObject({
       x_px: 'NA',
       y_px: 'NA',

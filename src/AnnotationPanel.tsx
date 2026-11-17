@@ -7,6 +7,11 @@ import {
   CircleDot,
   SkipForward,
   CheckCheck,
+  X,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import { GROUPS, STATUS_LABEL, LM_LABEL } from './config';
 import { aggregate, counts, type Project, type Session, type Status } from './domain';
@@ -38,6 +43,7 @@ type Props = {
   onReclassify: (c: string) => void;
   onPosition: (x: number, y: number) => void;
   onClearSkip: () => void;
+  onClose?: () => void;
 };
 export function AnnotationPanel(p: Props) {
   const { project, session: s } = p;
@@ -53,10 +59,21 @@ export function AnnotationPanel(p: Props) {
         ? s?.landmarks[p.selection.id]
         : undefined;
   return (
-    <aside className="right-panel">
+    <aside
+      className="right-panel"
+      role={p.onClose ? 'dialog' : undefined}
+      aria-modal={p.onClose ? true : undefined}
+      aria-label={p.onClose ? 'アノテーション' : undefined}
+    >
       <div className="panel-title">
         <span>アノテーション</span>
-        <span className="section-number">02</span>
+        {p.onClose ? (
+          <button className="mobile-close" aria-label="パネルを閉じる" onClick={p.onClose}>
+            <X size={20} />
+          </button>
+        ) : (
+          <span className="section-number">02</span>
+        )}
       </div>
       <div className="mode-tabs" role="tablist" aria-label="記録モード">
         {(
@@ -332,6 +349,26 @@ export function AnnotationPanel(p: Props) {
                     </select>
                   </label>
                 )}
+                {p.onClose && (
+                  <div className="mobile-nudge" aria-label="1ピクセルずつ移動">
+                    {(
+                      [
+                        { label: '左へ1px', dx: -1, dy: 0, Icon: ArrowLeft },
+                        { label: '上へ1px', dx: 0, dy: -1, Icon: ArrowUp },
+                        { label: '下へ1px', dx: 0, dy: 1, Icon: ArrowDown },
+                        { label: '右へ1px', dx: 1, dy: 0, Icon: ArrowRight },
+                      ] as const
+                    ).map(({ label, dx, dy, Icon }) => (
+                      <button
+                        key={label}
+                        aria-label={label}
+                        onClick={() => p.onPosition(selected.x_px! + dx, selected.y_px! + dy)}
+                      >
+                        <Icon size={20} />
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button className="danger" onClick={p.onDelete}>
                   選択点を削除
                 </button>
@@ -345,7 +382,7 @@ export function AnnotationPanel(p: Props) {
           <details className="retired-landmarks">
             <summary>以前のLandmark（保全）</summary>
             <p className="muted note">
-              現在の12項目には含めず、旧データを保全しています。JSON・旧項目CSVに出力されます。
+              現在の項目には含めず、旧データを保全しています。JSON・旧項目CSVに出力されます。
             </p>
             {Object.values(s.retired_landmarks).map((l) => (
               <p key={l.landmark}>

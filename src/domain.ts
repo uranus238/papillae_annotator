@@ -240,7 +240,7 @@ export function validateProject(value: unknown): Project {
   unique(pointIds, '点ID');
   return p;
 }
-// Only the known initial definition is upgraded. Custom research definitions are kept intact.
+// Upgrade known standard definitions only; custom research definitions are kept intact.
 export function upgradeObservationDefinitions(p: Project): Project {
   const initial =
     p.categories.length === LEGACY_CATEGORIES.length &&
@@ -248,20 +248,36 @@ export function upgradeObservationDefinitions(p: Project): Project {
       p.categories.some((old) => old.id === c.id && old.group === c.group),
     ) &&
     JSON.stringify(p.landmark_definitions) === JSON.stringify(LEGACY_LANDMARKS);
-  if (!initial) return p;
+  const previous =
+    p.categories.length === DEFAULT_CATEGORIES.length &&
+    DEFAULT_CATEGORIES.every((c) =>
+      p.categories.some((old) => old.id === c.id && old.group === c.group),
+    ) &&
+    JSON.stringify(p.landmark_definitions) ===
+      JSON.stringify(DEFAULT_LANDMARKS.filter((l) => l.id !== 'dorsal_origin'));
+  if (!initial && !previous) return p;
   const upgraded: Project = {
     ...p,
     updated_at: now(),
-    categories: DEFAULT_CATEGORIES.map((c) => ({
-      ...c,
-      color: p.categories.find((old) => old.id === c.id)?.color ?? c.color,
-    })),
+    categories: previous
+      ? p.categories
+      : DEFAULT_CATEGORIES.map((c) => ({
+          ...c,
+          color: p.categories.find((old) => old.id === c.id)?.color ?? c.color,
+        })),
     landmark_definitions: structuredClone(DEFAULT_LANDMARKS),
     sessions: p.sessions.map((s) => {
       const retired_landmarks = { ...s.retired_landmarks };
       for (const def of p.landmark_definitions)
         if (!DEFAULT_LANDMARKS.some((l) => l.id === def.id))
           retired_landmarks[def.id] = { ...s.landmarks[def.id], label: def.label };
+      const restored = Object.fromEntries(
+        DEFAULT_LANDMARKS.filter((l) => !s.landmarks[l.id] && retired_landmarks[l.id]).map((l) => {
+          const { label: _label, ...landmark } = retired_landmarks[l.id];
+          delete retired_landmarks[l.id];
+          return [l.id, landmark];
+        }),
+      );
       return {
         ...s,
         statuses: Object.fromEntries(
@@ -273,17 +289,18 @@ export function upgradeObservationDefinitions(p: Project): Project {
         landmarks: Object.fromEntries(
           DEFAULT_LANDMARKS.map((l) => [
             l.id,
-            s.landmarks[l.id] ?? {
-              point_id:
-                `migration_${s.annotation_session_id}_${l.id}`.length <= 200
-                  ? `migration_${s.annotation_session_id}_${l.id}`
-                  : uid(),
-              landmark: l.id,
-              x_px: null,
-              y_px: null,
-              observation_status: 'unrecorded',
-              updated_at: s.updated_at,
-            },
+            s.landmarks[l.id] ??
+              restored[l.id] ?? {
+                point_id:
+                  `migration_${s.annotation_session_id}_${l.id}`.length <= 200
+                    ? `migration_${s.annotation_session_id}_${l.id}`
+                    : uid(),
+                landmark: l.id,
+                x_px: null,
+                y_px: null,
+                observation_status: 'unrecorded',
+                updated_at: s.updated_at,
+              },
           ]),
         ),
         retired_landmarks,

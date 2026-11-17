@@ -50,6 +50,7 @@ export const DEFAULT_LANDMARKS = [
   { id: 'pectoral_upper', label: '胸鰭上端' },
   { id: 'pectoral_lower', label: '胸鰭下端' },
   { id: 'pelvic_anterior', label: '腹鰭前端' },
+  { id: 'dorsal_origin', label: '第一背鰭前端' },
 ];
 export const STATUS_LABEL = {
   unobserved: '未観察',

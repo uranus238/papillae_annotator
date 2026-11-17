@@ -6,6 +6,7 @@ import type { Project, Session, ImageRecord, XY, View, Point } from './domain';
 import { screenToImage, zoomAt } from './domain';
 import { adjustedImage, loadImage, type DisplaySettings } from './images';
 import { LANDMARK_COLOR } from './config';
+import { TouchGesture } from './touch';
 export type Mode = 'papillae' | 'landmark' | 'edit' | 'pan';
 export type Selection = { kind: 'papillae' | 'landmark'; id: string } | null;
 export type ROI = { x: number; y: number; width: number; height: number };
@@ -33,6 +34,8 @@ type Props = {
   setROI: (r: ROI | null) => void;
   onError: (s: string) => void;
   exportRef: React.RefObject<((includeLandmarks: boolean) => Promise<Blob>) | null>;
+  mobile?: boolean;
+  disabled?: boolean;
 };
 const Marker = memo(function Marker({
   point,
@@ -85,7 +88,34 @@ const Marker = memo(function Marker({
 export function Viewer(p: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
-  const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
+  const [view, setViewState] = useState<View>({ x: 0, y: 0, scale: 1 });
+  const viewRef = useRef(view);
+  const setView = (change: View | ((v: View) => View)) => {
+    const next = typeof change === 'function' ? change(viewRef.current) : change;
+    viewRef.current = next;
+    setViewState(next);
+  };
+  const viewFrame = useRef<number | null>(null);
+  const queueView = (next: View) => {
+    if (next === viewRef.current) return;
+    viewRef.current = next;
+    if (viewFrame.current === null)
+      viewFrame.current = requestAnimationFrame(() => {
+        viewFrame.current = null;
+        setViewState(viewRef.current);
+      });
+  };
+  const flushView = () => {
+    if (viewFrame.current !== null) {
+      cancelAnimationFrame(viewFrame.current);
+      viewFrame.current = null;
+    }
+    setViewState(viewRef.current);
+  };
+  const gesture = useRef(new TouchGesture());
+  const touchSuppressUntil = useRef(0);
+  const [touchInput, setTouchInput] = useState<'aim' | 'tap'>('aim');
+  const previousSize = useRef(size);
   const [raster, setRaster] = useState<HTMLCanvasElement>();
   const cursorReadout = useRef<HTMLSpanElement>(null);
   const cursorPosition = useRef<XY | null>(null);
@@ -106,6 +136,7 @@ export function Viewer(p: Props) {
   useEffect(
     () => () => {
       if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current);
+      if (viewFrame.current !== null) cancelAnimationFrame(viewFrame.current);
     },
     [],
   );
@@ -172,7 +203,21 @@ export function Viewer(p: Props) {
   }, [p.display]);
   useEffect(() => {
     fit();
-  }, [p.image?.image_id, size.width, size.height, p.roi]);
+  }, [p.image?.image_id, p.roi]);
+  useEffect(() => {
+    const old = previousSize.current;
+    previousSize.current = size;
+    if (p.mobile && p.image) {
+      setView((v) => ({
+        ...v,
+        x: v.x + (size.width - old.width) / 2,
+        y: v.y + (size.height - old.height) / 2,
+      }));
+    } else fit();
+  }, [size.width, size.height]);
+  useEffect(() => {
+    gesture.current.cancel();
+  }, [p.image?.image_id, p.mode, p.mobile, touchInput]);
   const image = p.image,
     session = p.session;
   const clamp = (pos: XY) => ({
@@ -202,6 +247,76 @@ export function Viewer(p: Props) {
         Math.max(0.01, Math.min(30, v.scale * factor)),
       ),
     );
+  const center = screenToImage({ x: size.width / 2, y: size.height / 2 }, view);
+  useEffect(() => {
+    if (p.mobile) updateCursor(center);
+  }, [p.mobile, view, size.width, size.height]);
+  const selectNear = (pos: XY) => {
+    if (!session || !p.show) {
+      p.setSelection(null);
+      return;
+    }
+    const candidates: { selection: NonNullable<Selection>; x: number; y: number }[] = [
+      ...session.points
+        .filter((pt) => !p.hidden.includes(pt.category) && inside({ x: pt.x_px, y: pt.y_px }))
+        .map((pt) => ({
+          selection: { kind: 'papillae' as const, id: pt.point_id },
+          x: pt.x_px,
+          y: pt.y_px,
+        })),
+      ...Object.values(session.landmarks)
+        .filter((l) => l.observation_status === 'recorded' && inside({ x: l.x_px!, y: l.y_px! }))
+        .map((l) => ({
+          selection: { kind: 'landmark' as const, id: l.landmark },
+          x: l.x_px!,
+          y: l.y_px!,
+        })),
+    ];
+    const at = screenToImage(pos, viewRef.current);
+    const nearest = candidates
+      .map((c) => ({ ...c, distance: Math.hypot(c.x - at.x, c.y - at.y) * viewRef.current.scale }))
+      .filter((c) => c.distance <= 24)
+      .sort((a, b) => a.distance - b.distance)[0];
+    p.setSelection(nearest?.selection ?? null);
+  };
+  const pointerPosition = (e: React.PointerEvent<HTMLDivElement>): XY => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!image || p.disabled || (!p.mobile && e.pointerType === 'mouse') || e.button !== 0) return;
+    touchSuppressUntil.current = performance.now() + 700;
+    gesture.current.begin(e.pointerId, pointerPosition(e));
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!gesture.current.points.has(e.pointerId)) return;
+    queueView(gesture.current.move(e.pointerId, pointerPosition(e), viewRef.current));
+    touchSuppressUntil.current = performance.now() + 700;
+  };
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!gesture.current.points.has(e.pointerId)) return;
+    const pos = pointerPosition(e);
+    queueView(gesture.current.move(e.pointerId, pos, viewRef.current));
+    const tap = gesture.current.end(e.pointerId, pos);
+    flushView();
+    touchSuppressUntil.current = performance.now() + 700;
+    if (e.currentTarget.hasPointerCapture(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    if (!tap || p.disabled) return;
+    if (p.mode === 'edit') selectNear(tap);
+    else if (p.mode !== 'pan' && (!p.mobile || touchInput === 'tap')) {
+      const original = screenToImage(tap, viewRef.current);
+      if (inside(original)) p.onAdd(original);
+    }
+  };
+  const centerAction = () => {
+    const latestCenter = screenToImage({ x: size.width / 2, y: size.height / 2 }, viewRef.current);
+    if (!inside(latestCenter) || p.disabled) return;
+    if (p.mode === 'edit') {
+      if (p.selection) p.onMove(p.selection, latestCenter);
+    } else if (p.mode === 'papillae' || p.mode === 'landmark') p.onAdd(latestCenter);
+  };
   const exportCanvas = async (includeLandmarks: boolean) => {
     if (!image || !raster || !session) throw new Error('画像がありません');
     const c = document.createElement('canvas');
@@ -253,7 +368,7 @@ export function Viewer(p: Props) {
       p.exportRef.current = null;
     };
   });
-  const edit = p.mode === 'edit' && !p.space;
+  const edit = p.mode === 'edit' && !p.space && !p.mobile;
   return (
     <section className="viewer-section">
       <div className="viewer-toolbar">
@@ -306,6 +421,11 @@ export function Viewer(p: Props) {
         ref={host}
         data-testid="viewer"
         className={`canvas-host ${p.space || p.mode === 'pan' ? 'panning' : edit ? 'editing' : p.mode === 'papillae' && !roiMode ? 'papillae-cursor' : ''}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={(e) => gesture.current.cancel(e.pointerId)}
+        onLostPointerCapture={(e) => gesture.current.cancel(e.pointerId)}
       >
         {!image ? (
           <div className="empty-view">
@@ -336,7 +456,7 @@ export function Viewer(p: Props) {
             y={view.y}
             scaleX={view.scale}
             scaleY={view.scale}
-            draggable={!roiMode && (p.space || p.mode === 'pan')}
+            draggable={!p.mobile && !roiMode && (p.space || p.mode === 'pan')}
             onDragEnd={(e) => {
               if (e.target === stage.current)
                 setView((v) => ({ ...v, x: e.target.x(), y: e.target.y() }));
@@ -353,6 +473,7 @@ export function Viewer(p: Props) {
               );
             }}
             onMouseDown={(e) => {
+              if (p.mobile) return;
               if (roiMode && e.evt.button === 0) {
                 const pos = pointer();
                 if (pos) {
@@ -362,6 +483,7 @@ export function Viewer(p: Props) {
               }
             }}
             onMouseMove={() => {
+              if (p.mobile) return;
               const pos = pointer();
               updateCursor(pos);
               if (roiMode && start.current && pos) {
@@ -376,6 +498,7 @@ export function Viewer(p: Props) {
               }
             }}
             onMouseUp={() => {
+              if (p.mobile) return;
               if (roiMode && start.current) {
                 suppressClickUntil.current = performance.now() + 150;
                 setTimeout(() => {
@@ -391,6 +514,7 @@ export function Viewer(p: Props) {
               }
             }}
             onMouseLeave={() => {
+              if (p.mobile) return;
               updateCursor(null);
               if (start.current) {
                 start.current = null;
@@ -399,6 +523,8 @@ export function Viewer(p: Props) {
             }}
             onClick={(e) => {
               if (
+                p.mobile ||
+                performance.now() < touchSuppressUntil.current ||
                 performance.now() < suppressClickUntil.current ||
                 e.evt.button !== 0 ||
                 p.space ||
@@ -522,6 +648,9 @@ export function Viewer(p: Props) {
         )}
         {image && (
           <>
+            {p.mobile && (touchInput === 'aim' || p.mode === 'edit') && (
+              <div className="mobile-aim" data-testid="mobile-aim" aria-hidden="true" />
+            )}
             <div className="canvas-badge">
               <span className="live-dot" />
               {p.mode === 'papillae'
@@ -543,12 +672,50 @@ export function Viewer(p: Props) {
           </>
         )}
       </div>
+      {p.mobile && (
+        <div className="mobile-capture-bar">
+          {p.mode === 'edit' ? (
+            <span className="mobile-edit-hint">点をタップして選択 → 十字で移動</span>
+          ) : (
+            <div className="mobile-input-toggle" aria-label="入力方法">
+              <button aria-pressed={touchInput === 'aim'} onClick={() => setTouchInput('aim')}>
+                十字で記録
+              </button>
+              <button aria-pressed={touchInput === 'tap'} onClick={() => setTouchInput('tap')}>
+                直接タップ
+              </button>
+            </div>
+          )}
+          {(touchInput === 'aim' || p.mode === 'edit') && (
+            <button
+              className="primary mobile-add"
+              onClick={centerAction}
+              disabled={
+                p.disabled ||
+                !image ||
+                !session ||
+                !inside(center) ||
+                (p.mode === 'edit' && !p.selection) ||
+                p.mode === 'pan'
+              }
+            >
+              {p.mode === 'edit' ? '十字へ移動' : '十字位置に追加'}
+            </button>
+          )}
+        </div>
+      )}
       <footer className="viewer-footer">
         <span ref={cursorReadout} data-testid="cursor-position">
           原点：画像左上 · 単位：px
         </span>
         <span>
-          <kbd>Space</kbd> パン <b>·</b> ホイールでズーム
+          {p.mobile ? (
+            'ドラッグで移動 · 2本指で拡大'
+          ) : (
+            <>
+              <kbd>Space</kbd> パン <b>·</b> ホイールでズーム
+            </>
+          )}
         </span>
       </footer>
     </section>

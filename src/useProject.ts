@@ -13,6 +13,26 @@ export function useProject() {
   const dirty = useRef(false),
     queue = useRef(Promise.resolve());
   const loadFailed = useRef(false);
+  const enqueued = useRef<Project | null>(null);
+  const persist = useCallback((snapshot: Project) => {
+    if (loadFailed.current || enqueued.current === snapshot) return;
+    enqueued.current = snapshot;
+    queue.current = queue.current
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await db.save(snapshot);
+          if (ref.current === snapshot) {
+            dirty.current = false;
+            setSaveState('ローカル保存済み');
+          }
+        } catch (e) {
+          setSaveState(`保存失敗: ${String(e)}。JSONを保存してください`);
+        } finally {
+          if (enqueued.current === snapshot) enqueued.current = null;
+        }
+      });
+  }, []);
   useEffect(() => {
     let alive = true;
     let release: () => void = () => {};
@@ -102,26 +122,29 @@ export function useProject() {
   useEffect(() => {
     if (!ready || locked || !dirty.current) return;
     const timer = setTimeout(() => {
+      if (!dirty.current) return;
       if (loadFailed.current) {
         setSaveState('自動保存停止中（読込失敗）。JSONで手動保存してください');
         return;
       }
-      queue.current = queue.current
-        .catch(() => {})
-        .then(async () => {
-          try {
-            await db.save(project);
-            if (ref.current === project) {
-              dirty.current = false;
-              setSaveState('ローカル保存済み');
-            }
-          } catch (e) {
-            setSaveState(`保存失敗: ${String(e)}。JSONを保存してください`);
-          }
-        });
+      persist(project);
     }, 350);
     return () => clearTimeout(timer);
-  }, [project, revision, ready, locked]);
+  }, [project, revision, ready, locked, persist]);
+  useEffect(() => {
+    const flush = () => {
+      if (ready && !locked && dirty.current) persist(ref.current);
+    };
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [ready, locked, persist]);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
       if (dirty.current) {

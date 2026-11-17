@@ -1,4 +1,4 @@
-import { ImagePlus, Plus, FlaskConical, SlidersHorizontal } from 'lucide-react';
+import { ImagePlus, Plus, FlaskConical, SlidersHorizontal, X } from 'lucide-react';
 import type { ImageRecord, Project, Session, Metadata } from './domain';
 import type { DisplaySettings } from './images';
 type Props = {
@@ -14,6 +14,9 @@ type Props = {
   display: DisplaySettings;
   setDisplay: (v: DisplaySettings) => void;
   resetDisplay: () => void;
+  onClose?: () => void;
+  onConfigExport?: () => void;
+  onConfigImport?: () => void;
 };
 export function MetadataPanel(p: Props) {
   const m = p.image?.metadata;
@@ -40,10 +43,21 @@ export function MetadataPanel(p: Props) {
     </label>
   );
   return (
-    <aside className="left-panel">
+    <aside
+      className="left-panel"
+      role={p.onClose ? 'dialog' : undefined}
+      aria-modal={p.onClose ? true : undefined}
+      aria-label={p.onClose ? '画像・個体情報' : undefined}
+    >
       <div className="panel-title">
         <span>画像・個体情報</span>
-        <span className="section-number">01</span>
+        {p.onClose ? (
+          <button className="mobile-close" aria-label="パネルを閉じる" onClick={p.onClose}>
+            <X size={20} />
+          </button>
+        ) : (
+          <span className="section-number">01</span>
+        )}
       </div>
       <div className="left-scroll">
         <div className="section-intro">
@@ -78,6 +92,12 @@ export function MetadataPanel(p: Props) {
             </button>
           )}
         </div>
+        {p.onClose && (
+          <div className="mobile-project-tools">
+            <button onClick={p.onConfigExport}>カテゴリ設定保存</button>
+            <button onClick={p.onConfigImport}>設定読込</button>
+          </div>
+        )}
         <div className="section-divider" />
         <div className="section-intro">
           <span>SPECIMEN INFORMATION</span>

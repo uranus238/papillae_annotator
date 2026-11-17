@@ -1,9 +1,10 @@
-import { test, expect, chromium, type Page, type Download } from '@playwright/test';
+import { test, expect, chromium, type Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 import type { Project } from '../../src/domain';
+import { exportedFile, type ExportedFile } from './downloads';
 import { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS } from '../../src/config';
 const sample = path.resolve('public/sample.png');
 const runtimeErrors = new WeakMap<Page, string[]>();
@@ -41,18 +42,13 @@ async function clickOriginal(page: Page, x: number, y: number) {
   const v = await fitView(page);
   await page.mouse.click(v.x + x * v.scale, v.y + y * v.scale);
 }
-async function bytes(d: Download) {
-  const stream = await d.createReadStream();
-  const chunks: Buffer[] = [];
-  for await (const b of stream!) chunks.push(Buffer.from(b));
-  return Buffer.concat(chunks);
+async function bytes(d: ExportedFile) {
+  return d.buffer;
 }
 async function exportDownload(page: Page, label: string) {
   await noticeOff(page);
   await page.getByRole('button', { name: '書き出す', exact: true }).click();
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: label }).click();
-  return await download;
+  return exportedFile(page, () => page.getByRole('button', { name: label }).click());
 }
 async function project(page: Page): Promise<Project> {
   return JSON.parse((await bytes(await exportDownload(page, 'プロジェクト JSON'))).toString());
@@ -110,7 +106,7 @@ test('image click, all categories, missingness, CSV/JSON/PNG/ZIP and browser res
   expect(row.c_total).toBe('10');
   expect(row.papillae_total_complete).toBe('true');
   expect(csvRows(await csv.file('papillae_coordinates.csv')!.async('string'))).toHaveLength(32);
-  expect(csvRows(await csv.file('landmarks.csv')!.async('string'))).toHaveLength(12);
+  expect(csvRows(await csv.file('landmarks.csv')!.async('string'))).toHaveLength(13);
   await page.locator('.marker-settings summary').click();
   await page.getByLabel('不透明度').fill('1');
   // Annotated exports include all records even when the viewer overlay is hidden.
@@ -341,7 +337,7 @@ test('all landmark auto advance completes, manual correction stays selected, cat
   let p = await project(page);
   expect(
     Object.values(p.sessions[0].landmarks).filter((l) => l.observation_status === 'recorded'),
-  ).toHaveLength(12);
+  ).toHaveLength(13);
   await noticeOff(page);
   await page.getByTestId('landmark-eye').click();
   await clickOriginal(page, 300, 350);
@@ -351,7 +347,7 @@ test('all landmark auto advance completes, manual correction stays selected, cat
   expect(p.sessions[0].landmarks.eye.x_px).toBe(260);
   expect(
     Object.values(p.sessions[0].landmarks).filter((l) => l.observation_status === 'recorded'),
-  ).toHaveLength(12);
+  ).toHaveLength(13);
 });
 test('JSON conflicts merge safely; CSV reload adds new sessions; invalid JSON is atomic', async ({
   page,
