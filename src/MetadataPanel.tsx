@@ -1,4 +1,4 @@
-import { ImagePlus, Plus, FlaskConical, SlidersHorizontal, X } from 'lucide-react';
+import { ImagePlus, Plus, FlaskConical, SlidersHorizontal, X, Trash2 } from 'lucide-react';
 import type { ImageRecord, Project, Session, Metadata } from './domain';
 import type { DisplaySettings } from './images';
 type Props = {
@@ -11,6 +11,7 @@ type Props = {
   onMetadata: (v: Partial<Metadata>) => void;
   onObserver: (v: string) => void;
   onImport: () => void;
+  onRemoveImage: () => void;
   display: DisplaySettings;
   setDisplay: (v: DisplaySettings) => void;
   resetDisplay: () => void;
@@ -92,6 +93,12 @@ export function MetadataPanel(p: Props) {
             </button>
           )}
         </div>
+        {p.image && (
+          <button className="remove-image" onClick={p.onRemoveImage}>
+            <Trash2 size={15} />
+            選択中の画像を削除
+          </button>
+        )}
         {p.onClose && (
           <div className="mobile-project-tools">
             <button onClick={p.onConfigExport}>カテゴリ設定保存</button>

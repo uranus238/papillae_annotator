@@ -14,6 +14,19 @@
   margin: 12px 0;
   background: #f6faf9;
 }
+.remove-image {
+  width: 100%;
+  justify-content: center;
+  margin: 8px 0;
+  padding: 8px 6px;
+  color: #a13939;
+  border-color: #ecd2d2;
+  background: #fffafa;
+  font-size: 11px;
+}
+.remove-image:hover {
+  background: #fff0f0;
+}
 .bulk-complete > summary {
   cursor: pointer;
   padding: 11px 10px;

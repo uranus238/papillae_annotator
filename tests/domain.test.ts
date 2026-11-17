@@ -16,6 +16,7 @@ import {
   screenToImage,
   setStatus,
   completeCategories,
+  removeImage,
   uid,
   validateProject,
   zoomAt,
@@ -71,6 +72,55 @@ describe('coordinate invariants', () => {
     };
     void settings;
     expect(serializeProject(p)).toBe(before);
+  });
+});
+
+describe('image removal', () => {
+  it('removes only the selected image and all its sessions without changing another image with the same source hash', () => {
+    const p = fixture(),
+      removedId = p.images[0].image_id;
+    p.sessions[0] = recordLandmark(addPoint(p.sessions[0], 'a1', { x: 50, y: 60 }), 'eye', {
+      x: 100,
+      y: 200,
+    });
+    p.sessions[0].retired_landmarks.PN = {
+      ...p.sessions[0].landmarks.eye,
+      point_id: uid(),
+      landmark: 'PN',
+      label: 'PN',
+    };
+    p.sessions.push(newSession(p, removedId, 'Second observer'));
+    const other = { ...structuredClone(p.images[0]), image_id: uid(), image_filename: 'keep.png' };
+    p.images.push(other);
+    const keepSession = recordLandmark(newSession(p, other.image_id, 'Keep observer'), 'eye', {
+      x: 300,
+      y: 200,
+    });
+    p.sessions.push(keepSession);
+    const before = structuredClone(p),
+      updated = removeImage(p, removedId);
+    expect(p).toEqual(before);
+    expect(updated.images).toEqual([other]);
+    expect(updated.sessions).toEqual([keepSession]);
+    expect(updated.images[0]).toBe(other);
+    expect(updated.sessions[0]).toBe(keepSession);
+    expect(updated.categories).toBe(p.categories);
+    expect(updated.landmark_definitions).toBe(p.landmark_definitions);
+    expect(validateProject(updated)).toEqual(updated);
+    expect(rows(exportCSVs(updated)['specimens.csv']).map((r) => r.image_id)).toEqual([
+      other.image_id,
+    ]);
+    expect(removeImage(updated, removedId)).toBe(updated);
+  });
+  it('allows removing the last image without leaving orphan sessions and keeps unknown-ID removals as no-ops', () => {
+    const p = fixture();
+    expect(removeImage(p, 'unknown-image')).toBe(p);
+    const updated = removeImage(p, p.images[0].image_id);
+    expect(updated.images).toEqual([]);
+    expect(updated.sessions).toEqual([]);
+    expect(validateProject(updated)).toEqual(updated);
+    expect(p.images).toHaveLength(1);
+    expect(p.sessions).toHaveLength(1);
   });
 });
 describe('observation definition update', () => {

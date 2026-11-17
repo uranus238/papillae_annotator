@@ -31,6 +31,7 @@ import {
   recordLandmark,
   setStatus,
   completeCategories,
+  removeImage,
   validateProject,
   upgradeObservationDefinitions,
   type ImageRecord,
@@ -219,6 +220,33 @@ export default function App() {
       }
       setNotice(messages.join('\n') || `${loaded.length}画像を登録しました`);
     });
+  const onRemoveImage = () => {
+    if (!image || busy || store.locked || !store.ready) return;
+    const sessions = project.sessions.filter((s) => s.image_id === image.image_id);
+    const points = sessions.reduce((n, s) => n + s.points.length, 0);
+    const landmarks = sessions.reduce(
+      (n, s) =>
+        n + Object.values(s.landmarks).filter((l) => l.observation_status === 'recorded').length,
+      0,
+    );
+    const retired = sessions.reduce(
+      (n, s) =>
+        n +
+        Object.values(s.retired_landmarks).filter((l) => l.observation_status === 'recorded')
+          .length,
+      0,
+    );
+    if (
+      !window.confirm(
+        `「${image.image_filename}」をアプリから削除しますか？\n個体ID: ${image.metadata.ID || '未入力'} / side: ${image.metadata.side}\n\nこの画像に紐づく${sessions.length}セッション（孔器${points}点、Landmark${landmarks}点、保全済み旧Landmark${retired}点）と個体情報も削除します。\n\n元の画像ファイルは変更しません。削除後は「元に戻す」1回で復元できます。再読込するとUndo履歴は失われます。`,
+      )
+    )
+      return;
+    commit((p) => removeImage(p, image.image_id));
+    setNotice(
+      `「${image.image_filename}」を削除しました。「元に戻す」1回で画像と記録を復元できます。`,
+    );
+  };
   const demo = () =>
     asyncAct(async () => {
       const response = await fetch(`${import.meta.env.BASE_URL}sample.png`);
@@ -648,6 +676,7 @@ export default function App() {
             }));
           }}
           onImport={requestImport}
+          onRemoveImage={onRemoveImage}
           display={display}
           setDisplay={setDisplay}
           resetDisplay={() => setDisplay(DEFAULT_DISPLAY)}

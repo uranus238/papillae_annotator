@@ -326,6 +326,15 @@ export function patchSession(p: Project, sid: string, fn: (s: Session) => Sessio
     ),
   };
 }
+export function removeImage(p: Project, imageId: string): Project {
+  if (!p.images.some((image) => image.image_id === imageId)) return p;
+  return {
+    ...p,
+    updated_at: now(),
+    images: p.images.filter((image) => image.image_id !== imageId),
+    sessions: p.sessions.filter((session) => session.image_id !== imageId),
+  };
+}
 export function addPoint(s: Session, category: string, pos: XY): Session {
   return {
     ...s,
