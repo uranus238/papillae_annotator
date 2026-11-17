@@ -5,7 +5,12 @@ import path from 'node:path';
 import { exportedFile } from './downloads';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
-import { LEGACY_CATEGORIES, LEGACY_LANDMARKS } from '../../src/legacyConfig';
+import {
+  LEGACY_CATEGORIES,
+  LEGACY_LANDMARKS,
+  PREVIOUS_LANDMARKS,
+  PREVIOUS_DORSAL_LANDMARKS,
+} from '../../src/legacyConfig';
 import { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS } from '../../src/config';
 import { addPoint, newSession, recordLandmark, setStatus, type Project } from '../../src/domain';
 async function dismiss(page: Page) {
@@ -131,7 +136,7 @@ test('twelve-landmark storage is backed up, archived dorsal points return, and n
     x_px: 700,
     y_px: 200,
   };
-  p.landmark_definitions = p.landmark_definitions.filter((l) => l.id !== 'dorsal_origin');
+  p.landmark_definitions = structuredClone(PREVIOUS_LANDMARKS);
   delete p.sessions[0].landmarks.dorsal_origin;
   const second = newSession(p, p.images[0].image_id, 'Archived observer');
   second.retired_landmarks.dorsal_origin = { ...archived, label: '第一背鰭前端' };
@@ -202,6 +207,54 @@ test('twelve-landmark storage is backed up, archived dorsal points return, and n
   expect((await saved(page)).sessions).toEqual(updated.sessions);
   expect(await idbRead(page, 'before-dorsal-landmark-update-2026-11-17')).toEqual(p);
 });
+test('previous thirteen-landmark JSON uses the requested final four order and keeps recorded anatomy', async ({
+  page,
+}) => {
+  const p = await prepare(page);
+  p.landmark_definitions = structuredClone(PREVIOUS_DORSAL_LANDMARKS);
+  p.sessions = [newSession(p, p.images[0].image_id, 'Previous order observer')];
+  for (const [i, l] of p.landmark_definitions.slice(0, 9).entries())
+    p.sessions[0] = recordLandmark(p.sessions[0], l.id, { x: 250 + i * 20, y: 300 });
+  const sid = p.sessions[0].annotation_session_id;
+  await dismiss(page);
+  await page
+    .locator('input[type=file]')
+    .nth(1)
+    .setInputFiles({
+      name: 'previous-order.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(p)),
+    });
+  await expect(page.locator('.busy-overlay')).toHaveCount(0);
+  await dismiss(page);
+  await page.getByLabel('セッション', { exact: true }).selectOption(sid);
+  await page.getByRole('tab', { name: 'Landmark', exact: true }).click();
+  expect(
+    (await page.locator('.landmark-button > span:nth-child(2)').allTextContents()).slice(-4),
+  ).toEqual(['腹鰭前端', '胸鰭下端', '胸鰭上端', '第一背鰭前端']);
+  for (const id of ['pelvic_anterior', 'pectoral_lower', 'pectoral_upper', 'dorsal_origin']) {
+    await expect(page.getByTestId(`landmark-${id}`)).toHaveClass(/chosen/);
+    const b = (await page.getByTestId('viewer').boundingBox())!;
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  }
+  await expect(page.locator('.completion')).toContainText('全ランドマークの記録完了');
+  const updated = await saved(page),
+    session = updated.sessions.find((s) => s.annotation_session_id === sid)!;
+  for (const def of p.landmark_definitions.slice(0, 9))
+    expect(session.landmarks[def.id]).toEqual(p.sessions[0].landmarks[def.id]);
+  const zip = await JSZip.loadAsync(await output(page, 'CSV 5種 ZIP'));
+  const rows = Papa.parse<Record<string, string>>(
+    await zip.file('landmarks.csv')!.async('string'),
+    { header: true, skipEmptyLines: true },
+  ).data;
+  expect(
+    rows
+      .filter((r) => r.annotation_session_id === sid)
+      .slice(-4)
+      .map((r) => r.landmark_label),
+  ).toEqual(['腹鰭前端', '胸鰭下端', '胸鰭上端', '第一背鰭前端']);
+});
+
 test('stored old definitions are migrated once with an intact pre-update backup', async ({
   page,
 }) => {

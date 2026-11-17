@@ -22,7 +22,12 @@ import {
 } from '../src/domain';
 import { exportCSVs, importCSVs, serializeProject } from '../src/io';
 import Papa from 'papaparse';
-import { LEGACY_CATEGORIES, LEGACY_LANDMARKS } from '../src/legacyConfig';
+import {
+  LEGACY_CATEGORIES,
+  LEGACY_LANDMARKS,
+  PREVIOUS_LANDMARKS,
+  PREVIOUS_DORSAL_LANDMARKS,
+} from '../src/legacyConfig';
 import { upgradeObservationDefinitions } from '../src/domain';
 function fixture() {
   const p = emptyProject();
@@ -68,6 +73,37 @@ describe('coordinate invariants', () => {
   });
 });
 describe('observation definition update', () => {
+  it('reorders thirteen-landmark projects by ID while preserving records and advancing through the requested fin order', () => {
+    const p = fixture();
+    p.landmark_definitions = structuredClone(PREVIOUS_DORSAL_LANDMARKS);
+    p.sessions[0] = addPoint(p.sessions[0], 'a1', { x: 20, y: 30 });
+    for (const [i, l] of p.landmark_definitions.slice(0, 9).entries())
+      p.sessions[0] = recordLandmark(p.sessions[0], l.id, { x: 100 + i * 20, y: 200 });
+    const before = structuredClone(p),
+      updated = upgradeObservationDefinitions(p);
+    const order = ['pelvic_anterior', 'pectoral_lower', 'pectoral_upper', 'dorsal_origin'];
+    expect(p).toEqual(before);
+    expect(updated.landmark_definitions.slice(-4).map((l) => l.id)).toEqual(order);
+    expect(updated.sessions).toEqual(p.sessions);
+    expect(updated.categories).toEqual(p.categories);
+    expect(updated.images).toEqual(p.images);
+    expect(upgradeObservationDefinitions(updated)).toBe(updated);
+    expect(mergeProject(updated, p).project.sessions).toHaveLength(1);
+    expect(
+      rows(exportCSVs(updated)['landmarks.csv'])
+        .slice(-4)
+        .map((l) => l.landmark),
+    ).toEqual(order);
+    let session = updated.sessions[0];
+    for (const id of order) {
+      expect(nextLandmark(updated, session)).toBe(id);
+      session = recordLandmark(session, id, { x: 450, y: 300 });
+    }
+    expect(nextLandmark(updated, session)).toBeUndefined();
+    const custom = structuredClone(p);
+    custom.landmark_definitions[0].label = 'Custom anatomy';
+    expect(upgradeObservationDefinitions(custom)).toBe(custom);
+  });
   function legacy() {
     const p = fixture();
     p.categories = structuredClone(LEGACY_CATEGORIES);
@@ -121,9 +157,9 @@ describe('observation definition update', () => {
       '開口後端',
       '下顎前端',
       '顎後端',
-      '胸鰭上端',
-      '胸鰭下端',
       '腹鰭前端',
+      '胸鰭下端',
+      '胸鰭上端',
       '第一背鰭前端',
     ]);
     expect(rows(exportCSVs(p)['landmarks.csv']).map((row) => row.landmark_label)).toEqual(
@@ -187,7 +223,7 @@ describe('observation definition update', () => {
       x: 100,
       y: 200,
     });
-    p.landmark_definitions = p.landmark_definitions.filter((l) => l.id !== 'dorsal_origin');
+    p.landmark_definitions = structuredClone(PREVIOUS_LANDMARKS);
     delete p.sessions[0].landmarks.dorsal_origin;
     p.categories[0].color = '#123456';
     const before = structuredClone(p),
@@ -221,7 +257,7 @@ describe('observation definition update', () => {
         x_px: status === 'recorded' ? 310 : null,
         y_px: status === 'recorded' ? 220 : null,
       };
-      p.landmark_definitions = p.landmark_definitions.filter((l) => l.id !== 'dorsal_origin');
+      p.landmark_definitions = structuredClone(PREVIOUS_LANDMARKS);
       delete p.sessions[0].landmarks.dorsal_origin;
       p.sessions[0].retired_landmarks.dorsal_origin = { ...dorsal, label: '第一背鰭前端' };
       const before = structuredClone(p),

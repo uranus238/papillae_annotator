@@ -28,7 +28,7 @@ npm run test:e2e    # Windows Edgeでブラウザ操作テスト
 
 公開アプリ右上の「使い方」から、ブラウザ用の説明ページを別タブで開けます。公開アプリURLの末尾に `help.html` を付けて直接共有することもできます。説明ページは編集ロックを取得しないため、記録画面と同時に開けます。
 
-標準Papillaeは1〜6、a1〜a6、b、c1〜c10、cp、d、x、z、hk1、hk2、os、ot、oiの32項目。Landmarkは眼後端、眼中心、眼前端、AN、上唇上端、上顎前端、開口後端、下顎前端、顎後端、胸鰭上端、胸鰭下端、腹鰭前端、第一背鰭前端の13項目（この順序）。
+標準Papillaeは1〜6、a1〜a6、b、c1〜c10、cp、d、x、z、hk1、hk2、os、ot、oiの32項目。Landmarkは眼後端、眼中心、眼前端、AN、上唇上端、上顎前端、開口後端、下顎前端、顎後端、腹鰭前端、胸鰭下端、胸鰭上端、第一背鰭前端の13項目（この順序）。
 
 1. JPG / PNG / TIFFをドロップ、または「画像を追加」で複数登録します。同じ原画像を読み込んだ場合も上書きせず通知します。
 2. 左欄で個体ID、side（L/R）、計数者を入力します。sexはM/F/未入力です。種名、採集地、SL/HL、pixel_size_um、備考は任意。未入力の必須情報があっても下書きを保全し、出力時に通知します。
@@ -96,13 +96,15 @@ sexの未入力・数値任意項目の欠測もNA。ランドマークの状態
 
 CSVは画像を含みません。**同じimage_idの画像が登録済みの環境**で、エクスポートした `papillae_status.csv`, `papillae_coordinates.csv`, `landmarks.csv` の3つを同時に選択すると、新規セッションとして座標・状態を復元します。状態の欠落、範囲外、観察状態と座標/計数の不整合は拒否します。counts/specimens CSVは解析・確認用で、CSV読込で個体情報を上書きしません。画像やメタデータを含む正確な再開・交換はJSON/ZIPを使ってください。
 
-カテゴリ設定は下端の「設定保存/読込」で共有できます。`src/config.ts` に初期定義があり、追加カテゴリも同じ4グループに所属させ、一意の英数字キーを設定します。設定の読込は観察記録開始前のみ可能です。標準Landmark IDはeye_posterior, eye, eye_anterior, AN, upper_lip, upper_jaw_anterior, mouth_posterior, lower_jaw_anterior, jaw_posterior, pectoral_upper, pectoral_lower, pelvic_anterior, dorsal_origin。
+カテゴリ設定は下端の「設定保存/読込」で共有できます。`src/config.ts` に初期定義があり、追加カテゴリも同じ4グループに所属させ、一意の英数字キーを設定します。設定の読込は観察記録開始前のみ可能です。標準Landmark IDはeye_posterior, eye, eye_anterior, AN, upper_lip, upper_jaw_anterior, mouth_posterior, lower_jaw_anterior, jaw_posterior, pelvic_anterior, pectoral_lower, pectoral_upper, dorsal_origin。
 
 ## 旧標準データからの移行
 
 旧標準の22カテゴリ・9LandmarkのJSON、ZIP、ブラウザ保存データを認識し、新定義へ移行します。既存の孔器点・状態・色、共通Landmarkの点IDと座標を維持し、追加項目は未観察／未記録になります。PN・吻前端・吻後端は別の部位へ置き換えず、各セッションの `retired_landmarks` に元の名前・座標・状態を保全します。画面下部の「以前のLandmark（保全）」で確認でき、JSONと追加CSV `retired_landmarks.csv` に出力します。現在の13点や注釈画像には含めません。ブラウザ保存データは移行前のコピーも同じ保存領域に保全します。独自に変更されたカテゴリ定義は自動変更しません。
 
 従来の32カテゴリ・12Landmarkのデータも自動で13Landmarkへ更新します。第一背鰭前端（dorsal_origin）は保全記録があれば元の座標・点ID・観察状態で復元し、なければ未記録で追加します。移行前の12点版のコピーはブラウザ内に別途保全します。旧9点版から直接移行した場合も第一背鰭前端を維持します。
+
+末尾4項目の順序は腹鰭前端 → 胸鰭下端 → 胸鰭上端 → 第一背鰭前端です。従来の順序で保存された標準12点・13点版も、座標・点ID・記録状態を保持して更新します。表示・自動送り・CSVの行順に反映します。
 
 旧CSVだけを新しい32項目へ直接読み込むことはできません。対応する旧JSON／ZIPを先に復元してから、新形式のCSVを使用してください。
 

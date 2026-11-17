@@ -71,6 +71,25 @@ export const LEGACY_LANDMARKS = [
   { id: 'pectoral_lower', label: '胸鰭基部下端' },
   { id: 'dorsal_origin', label: '第一背鰭前端' },
 ];
+// Standard order before the fin landmarks were reordered on 2026-11-17.
+export const PREVIOUS_LANDMARKS = [
+  { id: 'eye_posterior', label: '眼後端' },
+  { id: 'eye', label: '眼中心' },
+  { id: 'eye_anterior', label: '眼前端' },
+  { id: 'AN', label: 'AN' },
+  { id: 'upper_lip', label: '上唇上端' },
+  { id: 'upper_jaw_anterior', label: '上顎前端' },
+  { id: 'mouth_posterior', label: '開口後端' },
+  { id: 'lower_jaw_anterior', label: '下顎前端' },
+  { id: 'jaw_posterior', label: '顎後端' },
+  { id: 'pectoral_upper', label: '胸鰭上端' },
+  { id: 'pectoral_lower', label: '胸鰭下端' },
+  { id: 'pelvic_anterior', label: '腹鰭前端' },
+];
+export const PREVIOUS_DORSAL_LANDMARKS = [
+  ...PREVIOUS_LANDMARKS,
+  { id: 'dorsal_origin', label: '第一背鰭前端' },
+];
 export const STATUS_LABEL = {
   unobserved: '未観察',
   counting: '計数中',

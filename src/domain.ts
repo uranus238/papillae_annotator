@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { DEFAULT_CATEGORIES, DEFAULT_LANDMARKS, GROUPS } from './config';
-import { LEGACY_CATEGORIES, LEGACY_LANDMARKS } from './legacyConfig';
+import {
+  LEGACY_CATEGORIES,
+  LEGACY_LANDMARKS,
+  PREVIOUS_LANDMARKS,
+  PREVIOUS_DORSAL_LANDMARKS,
+} from './legacyConfig';
 
 const finite = z.number().finite();
 const id = z.string().min(1).max(200);
@@ -253,8 +258,11 @@ export function upgradeObservationDefinitions(p: Project): Project {
     DEFAULT_CATEGORIES.every((c) =>
       p.categories.some((old) => old.id === c.id && old.group === c.group),
     ) &&
-    JSON.stringify(p.landmark_definitions) ===
-      JSON.stringify(DEFAULT_LANDMARKS.filter((l) => l.id !== 'dorsal_origin'));
+    [
+      PREVIOUS_LANDMARKS,
+      PREVIOUS_DORSAL_LANDMARKS,
+      DEFAULT_LANDMARKS.filter((l) => l.id !== 'dorsal_origin'),
+    ].some((definitions) => JSON.stringify(p.landmark_definitions) === JSON.stringify(definitions));
   if (!initial && !previous) return p;
   const upgraded: Project = {
     ...p,

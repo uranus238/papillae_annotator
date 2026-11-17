@@ -1,5 +1,11 @@
 # Papillae Annotator v1 設計
 
+## 2026-11-17 鰭のLandmark順序変更
+
+末尾4項目の標準順序を腹鰭前端（pelvic_anterior）、胸鰭下端（pectoral_lower）、胸鰭上端（pectoral_upper）、第一背鰭前端（dorsal_origin）へ変更する。表示、自動送り、CSVの行順、ガイドに共通定義を適用する。
+
+従来の12点・13点の厳密な標準定義をlegacyConfig.tsへ固定し、既存データ・JSON/ZIP・設定読込時に新順序へ更新する。座標・点ID・観察状態・カテゴリ設定はIDで対応付けて保持し、任意の独自定義は変更しない。旧13点の保存データは`before-landmark-order-update-2026-11-17`に一度だけバックアップし、以前の2種類のバックアップも維持する。
+
 ## 2026-11-17 第一背鰭前端の再追加
 
 標準Landmarkの末尾に第一背鰭前端（`dorsal_origin`）を追加し、計13項目とする。PC・スマホ・CSV・JSON・注釈PNG・自動進行は共通定義から参照する。色は他のLandmarkと共通。
