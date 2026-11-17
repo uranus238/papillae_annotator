@@ -432,9 +432,9 @@ export function Viewer(p: Props) {
             <div className="empty-cross">
               <Crosshair size={52} strokeWidth={1} />
             </div>
-            <span className="eyebrow">OBSERVE · MARK · MEASURE</span>
+            <span className="eyebrow">IMAGE-BASED PHENOTYPING</span>
             <p>
-              顕微鏡画像をここにドロップして
+              画像をここにドロップして
               <br />
               孔器の計数とランドマークの記録をはじめましょう。
             </p>
